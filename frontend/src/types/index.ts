@@ -18,3 +18,13 @@ export type User = {
   role: string;
   is_active: boolean;
 };
+
+
+export type Contractor = {
+  id: string;
+  registration_number: string;
+  name: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
