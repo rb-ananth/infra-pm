@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import audit_logs, auth, contractors, contracts, departments, projects, users
+from app.api.routers import audit_logs, auth, boq_items, boq_revisions, boqs, contractors, contracts, departments, projects, users
 from app.core.config import settings
 
 app = FastAPI(
@@ -23,6 +23,9 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(departments.router, prefix="/api/v1/departments", tags=["Departments"])
 app.include_router(contractors.router, prefix="/api/v1/contractors", tags=["Contractors"])
 app.include_router(contracts.router, prefix="/api/v1/contracts", tags=["Contracts"])
+app.include_router(boqs.router, prefix="/api/v1/boqs", tags=["BOQs"])
+app.include_router(boq_revisions.router, prefix="/api/v1", tags=["BOQ Revisions"])
+app.include_router(boq_items.router, prefix="/api/v1", tags=["BOQ Items"])
 app.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"])
 app.include_router(audit_logs.router, prefix="/api/v1/audit-logs", tags=["Audit Logs"])
 
