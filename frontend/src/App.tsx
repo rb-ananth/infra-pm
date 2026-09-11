@@ -10,6 +10,7 @@ import Sidebar from "./components/Sidebar";
 
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
+import ProjectDetails from "./pages/ProjectDetails";
 import Contractors from "./pages/Contractors";
 import Departments from "./pages/Departments";
 import AuditLogs from "./pages/AuditLogs";
@@ -98,6 +99,11 @@ function App() {
             <Route
               path="/projects"
               element={<Projects />}
+            />
+
+            <Route
+              path="/projects/:projectId"
+              element={<ProjectDetails />}
             />
 
             <Route

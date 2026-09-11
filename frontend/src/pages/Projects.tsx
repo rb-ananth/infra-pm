@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import type { Project, User } from "../types";
 
@@ -395,7 +396,12 @@ function Projects() {
                     <td>{project.code}</td>
 
                     <td>
-                      <strong>{project.name}</strong>
+                      <Link
+                        to={`/projects/${project.id}`}
+                        className="project-link"
+                      >
+                        <strong>{project.name}</strong>
+                      </Link>
                     </td>
 
                     <td>
