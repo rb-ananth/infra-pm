@@ -45,3 +45,48 @@ export type Contract = {
   created_at: string;
   updated_at: string;
 };
+
+export type BoqStatus = "Draft" | "Submitted" | "Approved" | "Superseded";
+
+export type Boq = {
+  id: string;
+  contract_id: string;
+  boq_number: string;
+  title: string;
+  description: string | null;
+  status: BoqStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BoqRevision = {
+  id: string;
+  boq_id: string;
+  revision_number: number;
+  revision_date: string;
+  status: BoqStatus;
+  remarks: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BoqItem = {
+  id: string;
+  revision_id: string;
+  item_code: string;
+  item_number: string;
+  description: string;
+  unit: string;
+  quantity: string;
+  rate: string;
+  amount: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BoqRevisionDetail = {
+  boq: Boq;
+  revision: BoqRevision;
+  items: BoqItem[];
+  total: string;
+};

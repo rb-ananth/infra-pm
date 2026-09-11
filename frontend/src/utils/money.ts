@@ -43,6 +43,11 @@ export function formatInrAsCrore(value: string): string {
   return formatScaledInteger(croreHundredths, 2);
 }
 
+/** Format an INR API value with rupee grouping and two decimal places. */
+export function formatInr(value: string): string {
+  return formatScaledInteger(toScaledInteger(value, 2), 2);
+}
+
 /** Sum INR API values exactly and return the readable crore representation. */
 export function sumInrAsCrore(values: string[]): string {
   const totalPaise = values.reduce(

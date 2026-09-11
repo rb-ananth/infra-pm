@@ -45,6 +45,14 @@ function Sidebar({ role }: SidebarProps) {
         </NavLink>
 
         <NavLink
+          to="/boqs"
+          end
+          className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
+        >
+          BOQs
+        </NavLink>
+
+        <NavLink
           to="/departments"
           className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
         >

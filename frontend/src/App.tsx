@@ -17,6 +17,9 @@ import AuditLogs from "./pages/AuditLogs";
 
 import type { Project, User } from "./types";
 import Contracts from "./pages/Contracts";
+import BoqRegistry from "./pages/BoqRegistry";
+import BoqDetails from "./pages/BoqDetails";
+import BoqRevisionDetails from "./pages/BoqRevisionDetails";
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -115,6 +118,21 @@ function App() {
             <Route
               path="/contracts"
               element={<Contracts />}
+            />
+
+            <Route
+              path="/boqs"
+              element={<BoqRegistry role={user.role} />}
+            />
+
+            <Route
+              path="/boqs/:boqId"
+              element={<BoqDetails role={user.role} />}
+            />
+
+            <Route
+              path="/boqs/:boqId/revisions/:revisionId"
+              element={<BoqRevisionDetails role={user.role} />}
             />
 
             <Route
