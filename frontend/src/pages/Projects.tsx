@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import type { Project, User } from "../types";
+import { croreToInr, formatInrAsCrore } from "../utils/money";
 
 type Department = {
   id: string;
@@ -126,7 +127,7 @@ function Projects() {
         dept_id: form.dept_id,
         pm_id: form.pm_id,
         status: form.status,
-        total_estimated_cost: form.total_estimated_cost,
+        total_estimated_cost: croreToInr(form.total_estimated_cost),
         start_date: form.start_date,
         expected_completion: form.expected_completion,
       });
@@ -275,7 +276,7 @@ function Projects() {
               </label>
 
               <label>
-                Estimated Cost (Cr)
+                Estimated Cost (₹ Cr)
                 <input
                   required
                   type="number"
@@ -412,9 +413,7 @@ function Projects() {
 
                     <td>
                       ₹
-                      {Number(
-                        project.total_estimated_cost,
-                      ).toFixed(2)}{" "}
+                      {formatInrAsCrore(project.total_estimated_cost)}{" "}
                       Cr
                     </td>
 

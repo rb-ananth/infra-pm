@@ -1,4 +1,5 @@
 import type { Project } from "../types";
+import { formatInrAsCrore, sumInrAsCrore } from "../utils/money";
 
 type DashboardProps = {
   projects: Project[];
@@ -9,9 +10,8 @@ function Dashboard({ projects }: DashboardProps) {
     (project) => project.status === "Execution",
   ).length;
 
-  const portfolioEstimate = projects.reduce(
-    (sum, project) => sum + Number(project.total_estimated_cost),
-    0,
+  const portfolioEstimate = sumInrAsCrore(
+    projects.map((project) => project.total_estimated_cost),
   );
 
   return (
@@ -39,7 +39,7 @@ function Dashboard({ projects }: DashboardProps) {
 
         <div className="card">
           <span>Portfolio Estimate</span>
-          <strong>₹{portfolioEstimate.toFixed(2)} Cr</strong>
+          <strong>₹{portfolioEstimate} Cr</strong>
         </div>
 
         <div className="card">
@@ -79,7 +79,7 @@ function Dashboard({ projects }: DashboardProps) {
                     <span className="status">{project.status}</span>
                   </td>
                   <td>
-                    ₹{Number(project.total_estimated_cost).toFixed(2)} Cr
+                    ₹{formatInrAsCrore(project.total_estimated_cost)} Cr
                   </td>
                   <td>{project.expected_completion}</td>
                 </tr>

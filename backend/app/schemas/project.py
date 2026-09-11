@@ -11,7 +11,8 @@ class ProjectCreate(BaseModel):
     dept_id: uuid.UUID
     pm_id: uuid.UUID
     status: str = Field(default="Proposed", pattern="^(Proposed|Execution|Closed|Suspended)$")
-    total_estimated_cost: Decimal = Field(ge=0)
+    # Monetary values are always expressed in INR at the API boundary.
+    total_estimated_cost: Decimal = Field(ge=0, description="Total estimated cost in INR")
     start_date: date
     expected_completion: date
 
@@ -27,7 +28,11 @@ class ProjectUpdate(BaseModel):
     dept_id: uuid.UUID | None = None
     pm_id: uuid.UUID | None = None
     status: str | None = Field(default=None, pattern="^(Proposed|Execution|Closed|Suspended)$")
-    total_estimated_cost: Decimal | None = Field(default=None, ge=0)
+    total_estimated_cost: Decimal | None = Field(
+        default=None,
+        ge=0,
+        description="Total estimated cost in INR",
+    )
     start_date: date | None = None
     expected_completion: date | None = None
 

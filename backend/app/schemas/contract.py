@@ -11,7 +11,8 @@ class ContractCreate(BaseModel):
     contractor_id: uuid.UUID
     contract_type: str = Field(default="Works", min_length=2, max_length=50)
     award_date: date
-    contract_value: Decimal = Field(ge=0)
+    # Monetary values are always expressed in INR at the API boundary.
+    contract_value: Decimal = Field(ge=0, description="Contract value in INR")
     start_date: date
     original_completion_date: date
     current_completion_date: date
@@ -48,7 +49,11 @@ class ContractUpdate(BaseModel):
         max_length=50,
     )
     award_date: date | None = None
-    contract_value: Decimal | None = Field(default=None, ge=0)
+    contract_value: Decimal | None = Field(
+        default=None,
+        ge=0,
+        description="Contract value in INR",
+    )
     start_date: date | None = None
     original_completion_date: date | None = None
     current_completion_date: date | None = None

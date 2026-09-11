@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import api from "../services/api";
 import type { Contract, Contractor, Project } from "../types";
+import { croreToInr, formatInrAsCrore } from "../utils/money";
 
 const CONTRACT_STATUSES = [
   "Draft",
@@ -16,13 +17,6 @@ function formatDate(value: string) {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  });
-}
-
-function formatValue(value: string) {
-  return Number(value).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
   });
 }
 
@@ -128,7 +122,7 @@ function Contracts() {
     try {
       await api.post("/contracts", {
         ...form,
-        contract_value: form.contract_value,
+        contract_value: croreToInr(form.contract_value),
       });
 
       setShowForm(false);
@@ -242,7 +236,7 @@ function Contracts() {
                       "Unknown contractor"}
                   </td>
 
-                  <td>₹{formatValue(contract.contract_value)} Cr</td>
+                  <td>₹{formatInrAsCrore(contract.contract_value)} Cr</td>
 
                   <td>{formatDate(contract.start_date)}</td>
 
@@ -377,7 +371,7 @@ function Contracts() {
                 </label>
 
                 <label>
-                  Contract Value
+                  Contract Value (₹ Cr)
                   <input
                     required
                     min="0"

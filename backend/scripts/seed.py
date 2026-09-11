@@ -79,7 +79,8 @@ def run_seed():
                     dept_id=department_map["PWD"],
                     pm_id=pm.id,
                     status="Execution",
-                    total_estimated_cost=Decimal("48.50"),
+                    # Monetary values are stored in INR; 48.50 Cr = 485,000,000 INR.
+                    total_estimated_cost=Decimal("485000000.00"),
                     start_date=date(2026, 4, 1),
                     expected_completion=date(2027, 3, 31),
                 )
@@ -92,7 +93,8 @@ def run_seed():
                     dept_id=department_map["NHAI"],
                     pm_id=pm.id,
                     status="Proposed",
-                    total_estimated_cost=Decimal("125.00"),
+                    # Monetary values are stored in INR; 125.00 Cr = 1,250,000,000 INR.
+                    total_estimated_cost=Decimal("1250000000.00"),
                     start_date=date(2026, 10, 1),
                     expected_completion=date(2028, 3, 31),
                 )

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import api from "../services/api";
 import type { Project, User } from "../types";
+import { formatInrAsCrore } from "../utils/money";
 
 type Department = {
   id: string;
@@ -103,7 +104,7 @@ function ProjectDetails() {
         <div className="card">
           <span>Estimated Cost</span>
           <strong>
-            ₹{Number(project.total_estimated_cost).toFixed(2)} Cr
+            ₹{formatInrAsCrore(project.total_estimated_cost)} Cr
           </strong>
         </div>
 
