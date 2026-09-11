@@ -16,6 +16,7 @@ import Departments from "./pages/Departments";
 import AuditLogs from "./pages/AuditLogs";
 
 import type { Project, User } from "./types";
+import Contracts from "./pages/Contracts";
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -109,6 +110,11 @@ function App() {
             <Route
               path="/contractors"
               element={<Contractors />}
+            />
+
+            <Route
+              path="/contracts"
+              element={<Contracts />}
             />
 
             <Route

@@ -28,3 +28,20 @@ export type Contractor = {
   created_at: string;
   updated_at: string;
 };
+
+
+export type Contract = {
+  id: string;
+  contract_number: string;
+  project_id: string;
+  contractor_id: string;
+  contract_type: string;
+  award_date: string;
+  contract_value: string;
+  start_date: string;
+  original_completion_date: string;
+  current_completion_date: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
