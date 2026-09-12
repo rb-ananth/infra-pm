@@ -10,6 +10,7 @@ from app.models.project import Project
 from app.models.role import Role
 from app.models.user import User
 from app.models.ra_bill import RABill, RABillItem, RABillMeasurement, RABillDeduction
+from app.models.evm import EVMBaseline, EVMBaselinePeriod
 
 __all__ = [
     "AuditLog",
@@ -27,4 +28,6 @@ __all__ = [
     "RABillItem",
     "RABillMeasurement",
     "RABillDeduction",
+    "EVMBaseline",
+    "EVMBaselinePeriod",
 ]
