@@ -7,6 +7,8 @@ import type {
   BoqImportPreview,
   BoqImportResult,
   Contract,
+  Measurement,
+  MeasurementDetail,
 } from "../types";
 
 const api = axios.create({
@@ -81,6 +83,19 @@ export const boqApi = {
       formData,
     );
   },
+};
+
+export const measurementApi = {
+  list: (params?: { boq_item_id?: string; status?: string; date_from?: string; date_to?: string }) =>
+    api.get<Measurement[]>("/measurements", { params }),
+  get: (id: string) => api.get<MeasurementDetail>(`/measurements/${id}`),
+  create: (payload: { boq_item_id: string; measurement_date: string; quantity: string; reference: string; description: string; remarks?: string }) => 
+    api.post<MeasurementDetail>("/measurements", payload),
+  update: (id: string, payload: { measurement_date?: string; quantity?: string; reference?: string; description?: string; remarks?: string }) => 
+    api.put<MeasurementDetail>(`/measurements/${id}`, payload),
+  submit: (id: string) => api.post<MeasurementDetail>(`/measurements/${id}/submit`),
+  approve: (id: string) => api.post<MeasurementDetail>(`/measurements/${id}/approve`),
+  reject: (id: string) => api.post<MeasurementDetail>(`/measurements/${id}/reject`),
 };
 
 export function getApiErrorMessage(error: unknown, fallback: string): string {

@@ -20,6 +20,8 @@ import Contracts from "./pages/Contracts";
 import BoqRegistry from "./pages/BoqRegistry";
 import BoqDetails from "./pages/BoqDetails";
 import BoqRevisionDetails from "./pages/BoqRevisionDetails";
+import Measurements from "./pages/Measurements";
+import MeasurementDetails from "./pages/MeasurementDetails";
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -138,6 +140,16 @@ function App() {
             <Route
               path="/departments"
               element={<Departments />}
+            />
+
+            <Route
+              path="/measurements"
+              element={<Measurements role={user.role} />}
+            />
+
+            <Route
+              path="/measurements/:measurementId"
+              element={<MeasurementDetails role={user.role} />}
             />
 
             <Route

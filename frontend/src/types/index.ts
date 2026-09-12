@@ -124,3 +124,29 @@ export type BoqImportResult = {
   created_item_ids: string[];
   total: string;
 };
+
+export type MeasurementStatus = "Draft" | "Submitted" | "Approved" | "Rejected";
+
+export type Measurement = {
+  id: string;
+  boq_item_id: string;
+  measurement_date: string;
+  quantity: string;
+  reference: string;
+  description: string;
+  remarks: string | null;
+  status: MeasurementStatus;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MeasurementDetail = {
+  measurement: Measurement;
+  boq_item: BoqItem;
+  cumulative_approved_quantity: string;
+  balance_quantity: string;
+  percentage_executed: string;
+  is_overrun: boolean;
+  overrun_quantity: string | null;
+};
