@@ -4,6 +4,8 @@ import type {
   BoqItem,
   BoqRevision,
   BoqRevisionDetail,
+  BoqImportPreview,
+  BoqImportResult,
   Contract,
 } from "../types";
 
@@ -63,6 +65,22 @@ export const boqApi = {
   updateItem: (itemId: string, payload: Record<string, string>) =>
     api.put<BoqItem>(`/boq-items/${itemId}`, payload),
   listContracts: () => api.get<Contract[]>("/contracts/"),
+  previewImport: (revisionId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<BoqImportPreview>(
+      `/boq-revisions/${revisionId}/import/preview`,
+      formData,
+    );
+  },
+  importItems: (revisionId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<BoqImportResult>(
+      `/boq-revisions/${revisionId}/import`,
+      formData,
+    );
+  },
 };
 
 export function getApiErrorMessage(error: unknown, fallback: string): string {
@@ -77,6 +95,26 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
         .filter(Boolean)
         .join(" ");
     }
+    if (detail && typeof detail === "object") {
+      if (Array.isArray((detail as { errors?: unknown }).errors)) {
+        const messages = (detail as { errors: Array<{ message?: unknown }> }).errors
+          .map((item) => (typeof item?.message === "string" ? item.message : ""))
+          .filter(Boolean);
+        if (messages.length > 0) {
+          return messages.join("; ");
+        }
+      }
+      if (typeof (detail as { message?: unknown }).message === "string") {
+        return (detail as { message: string }).message;
+      }
+    }
   }
   return fallback;
+}
+
+export function getApiErrorDetail(error: unknown): unknown {
+  if (axios.isAxiosError(error)) {
+    return error.response?.data?.detail;
+  }
+  return undefined;
 }

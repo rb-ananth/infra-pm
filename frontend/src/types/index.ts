@@ -90,3 +90,37 @@ export type BoqRevisionDetail = {
   items: BoqItem[];
   total: string;
 };
+
+export type BoqImportError = {
+  row: number | null;
+  field: string | null;
+  message: string;
+};
+
+export type BoqImportPreviewItem = {
+  item_code: string;
+  item_number: string;
+  description: string;
+  unit: string;
+  quantity: string;
+  rate: string;
+  amount: string;
+};
+
+export type BoqImportPreview = {
+  valid: boolean;
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  warnings: string[];
+  ignored_columns: string[];
+  errors: BoqImportError[];
+  items: BoqImportPreviewItem[];
+};
+
+export type BoqImportResult = {
+  revision_id: string;
+  imported_count: number;
+  created_item_ids: string[];
+  total: string;
+};

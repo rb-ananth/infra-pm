@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { boqApi, getApiErrorMessage } from "../services/api";
+import BoqImportWorkflow from "../components/BoqImportWorkflow";
 import type { BoqItem, BoqRevisionDetail } from "../types";
 import { formatInr, formatInrAsCrore } from "../utils/money";
 
@@ -43,6 +44,7 @@ function BoqRevisionDetails({ role }: BoqRevisionDetailsProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editingItem, setEditingItem] = useState<BoqItem | null>(null);
   const [form, setForm] = useState<ItemForm>(EMPTY_FORM);
 
@@ -203,6 +205,7 @@ function BoqRevisionDetails({ role }: BoqRevisionDetailsProps) {
         <div className="revision-actions">
           {canWrite && isDraft && (
             <>
+              <button type="button" className="secondary" onClick={() => setShowImport(true)}>Import BOQ Items</button>
               <button type="button" onClick={openCreateForm}>+ Add Item</button>
               <button type="button" className="secondary" disabled={saving} onClick={() => changeStatus("Submitted")}>Submit Revision</button>
             </>
@@ -277,6 +280,14 @@ function BoqRevisionDetails({ role }: BoqRevisionDetailsProps) {
             </form>
           </div>
         </div>
+      )}
+
+      {showImport && revisionId && (
+        <BoqImportWorkflow
+          revisionId={revisionId}
+          onClose={() => setShowImport(false)}
+          onImported={loadDetail}
+        />
       )}
     </section>
   );
