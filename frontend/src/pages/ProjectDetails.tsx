@@ -208,10 +208,10 @@ function ProjectDetails() {
             <span>Physical and financial progress</span>
           </div>
 
-          <div className="module-card">
+          <Link to={`/projects/${project.id}/evm`} className="module-card" style={{ textDecoration: 'none', color: 'inherit' }}>
             <strong>EVM</strong>
             <span>Earned value and project performance</span>
-          </div>
+          </Link>
 
           <div className="module-card">
             <strong>Variations</strong>

@@ -179,3 +179,40 @@ export const raBillApi = {
   deleteDeduction: (billId: string, deductionId: string) =>
     api.delete(`/ra-bills/${billId}/deductions/${deductionId}`),
 };
+
+export const evmApi = {
+  getEvm: (projectId: string, asOfDate: string) =>
+    api.get<import("../types").EVMResponse>(`/projects/${projectId}/evm?as_of_date=${asOfDate}`),
+  getTrend: (projectId: string) =>
+    api.get<import("../types").EVMTrendPoint[]>(`/projects/${projectId}/evm/trend`),
+  listBaselines: (projectId: string) =>
+    api.get<import("../types").EVMBaseline[]>(`/projects/${projectId}/evm/baselines`),
+  createBaseline: (projectId: string, data: {
+    baseline_number: string;
+    name: string;
+    effective_date: string;
+    remarks?: string;
+  }) => api.post<import("../types").EVMBaseline>(`/projects/${projectId}/evm/baselines`, data),
+  getBaseline: (baselineId: string) =>
+    api.get<import("../types").EVMBaseline>(`/evm-baselines/${baselineId}`),
+  updateBaseline: (baselineId: string, data: {
+    name?: string;
+    effective_date?: string;
+    remarks?: string;
+    status?: string;
+  }) => api.put<import("../types").EVMBaseline>(`/evm-baselines/${baselineId}`, data),
+  approveBaseline: (baselineId: string) =>
+    api.post<import("../types").EVMBaseline>(`/evm-baselines/${baselineId}/approve`),
+  supersedeBaseline: (baselineId: string) =>
+    api.post<import("../types").EVMBaseline>(`/evm-baselines/${baselineId}/supersede`),
+  listPeriods: (baselineId: string) =>
+    api.get<import("../types").EVMBaselinePeriod[]>(`/evm-baselines/${baselineId}/periods`),
+  addPeriod: (baselineId: string, data: {
+    period_date: string;
+    planned_percentage: string;
+  }) => api.post<import("../types").EVMBaselinePeriod>(`/evm-baselines/${baselineId}/periods`, data),
+  updatePeriod: (periodId: string, data: {
+    period_date?: string;
+    planned_percentage?: string;
+  }) => api.put<import("../types").EVMBaselinePeriod>(`/evm-baseline-periods/${periodId}`, data),
+};

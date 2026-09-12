@@ -24,6 +24,7 @@ import Measurements from "./pages/Measurements";
 import MeasurementDetails from "./pages/MeasurementDetails";
 import RABills from "./pages/RABills";
 import RABillDetails from "./pages/RABillDetails";
+import EVM from "./pages/EVM";
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -112,6 +113,11 @@ function App() {
             <Route
               path="/projects/:projectId"
               element={<ProjectDetails />}
+            />
+
+            <Route
+              path="/projects/:projectId/evm"
+              element={<EVM role={user.role} />}
             />
 
             <Route

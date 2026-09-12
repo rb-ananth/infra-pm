@@ -198,3 +198,57 @@ export type RABillDetail = RABill & {
   items: RABillItem[];
   deductions: RABillDeduction[];
 };
+
+export type EVMStatus = "Draft" | "Approved" | "Superseded";
+
+export type EVMBaselinePeriod = {
+  id: string;
+  baseline_id: string;
+  period_date: string;
+  planned_percentage: string;
+  planned_value: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EVMBaseline = {
+  id: string;
+  project_id: string;
+  baseline_number: string;
+  name: string;
+  status: EVMStatus;
+  effective_date: string;
+  remarks: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  periods?: EVMBaselinePeriod[];
+};
+
+export type EVMResponse = {
+  project_id: string;
+  as_of_date: string;
+  baseline_id: string | null;
+  pv: string;
+  ev: string;
+  ac: string;
+  sv: string;
+  cv: string;
+  spi: string | null;
+  cpi: string | null;
+  planned_percentage: string;
+  actual_percentage: string;
+  schedule_status: string;
+  cost_status: string;
+};
+
+export type EVMTrendPoint = {
+  date: string;
+  pv: string;
+  ev: string;
+  ac: string;
+  sv: string;
+  cv: string;
+  spi: string | null;
+  cpi: string | null;
+};
