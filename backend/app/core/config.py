@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     CORS_ORIGINS: str = "http://localhost:5173"
+    BOQ_IMPORT_MAX_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
     model_config = SettingsConfigDict(
         env_file="../.env",
