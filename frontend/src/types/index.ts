@@ -150,3 +150,51 @@ export type MeasurementDetail = {
   is_overrun: boolean;
   overrun_quantity: string | null;
 };
+export type RABillStatus = "Draft" | "Submitted" | "Approved" | "Rejected";
+
+export type RABillDeduction = {
+  id: string;
+  ra_bill_id: string;
+  deduction_type: string;
+  description: string | null;
+  amount: string;
+};
+
+export type RABillItem = {
+  id: string;
+  ra_bill_id: string;
+  boq_item_id: string;
+  current_quantity: string;
+  rate: string;
+  current_amount: string;
+  boq_item: BoqItem;
+  previous_cumulative_quantity: string;
+  cumulative_quantity: string;
+  balance_quantity: string;
+  cumulative_amount: string;
+  previous_cumulative_amount?: string;
+  percentage_executed: string;
+  measurements: Measurement[];
+};
+
+export type RABill = {
+  id: string;
+  contract_id: string;
+  bill_number: string;
+  bill_date: string;
+  period_from: string;
+  period_to: string;
+  remarks: string | null;
+  status: RABillStatus;
+  gross_amount: string;
+  deductions_amount: string;
+  net_payable: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RABillDetail = RABill & {
+  items: RABillItem[];
+  deductions: RABillDeduction[];
+};

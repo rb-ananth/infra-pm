@@ -89,9 +89,9 @@ export const measurementApi = {
   list: (params?: { boq_item_id?: string; status?: string; date_from?: string; date_to?: string }) =>
     api.get<Measurement[]>("/measurements", { params }),
   get: (id: string) => api.get<MeasurementDetail>(`/measurements/${id}`),
-  create: (payload: { boq_item_id: string; measurement_date: string; quantity: string; reference: string; description: string; remarks?: string }) => 
+  create: (payload: { boq_item_id: string; measurement_date: string; quantity: string; reference: string; description: string; remarks?: string }) =>
     api.post<MeasurementDetail>("/measurements", payload),
-  update: (id: string, payload: { measurement_date?: string; quantity?: string; reference?: string; description?: string; remarks?: string }) => 
+  update: (id: string, payload: { measurement_date?: string; quantity?: string; reference?: string; description?: string; remarks?: string }) =>
     api.put<MeasurementDetail>(`/measurements/${id}`, payload),
   submit: (id: string) => api.post<MeasurementDetail>(`/measurements/${id}/submit`),
   approve: (id: string) => api.post<MeasurementDetail>(`/measurements/${id}/approve`),
@@ -133,3 +133,49 @@ export function getApiErrorDetail(error: unknown): unknown {
   }
   return undefined;
 }
+
+export const raBillApi = {
+  list: (params?: {
+    contract_id?: string;
+    status?: string;
+    date_from?: string;
+    date_to?: string;
+  }) => api.get<import("../types").RABill[]>("/ra-bills/", { params }),
+  get: (billId: string) => api.get<import("../types").RABillDetail>(`/ra-bills/${billId}`),
+  create: (data: {
+    contract_id: string;
+    bill_number: string;
+    bill_date: string;
+    period_from: string;
+    period_to: string;
+    remarks?: string;
+  }) => api.post<import("../types").RABill>("/ra-bills/", data),
+  update: (billId: string, data: {
+    bill_number?: string;
+    bill_date?: string;
+    period_from?: string;
+    period_to?: string;
+    remarks?: string;
+  }) => api.put<import("../types").RABill>(`/ra-bills/${billId}`, data),
+  submit: (billId: string) => api.post<import("../types").RABill>(`/ra-bills/${billId}/submit`),
+  approve: (billId: string) => api.post<import("../types").RABill>(`/ra-bills/${billId}/approve`),
+  reject: (billId: string) => api.post<import("../types").RABill>(`/ra-bills/${billId}/reject`),
+  getEligibleMeasurements: (contractId: string) =>
+    api.get<import("../types").Measurement[]>(`/ra-bills/${contractId}/eligible-measurements`),
+  addItems: (billId: string, data: { measurement_ids: string[] }) =>
+    api.post<import("../types").RABillDetail>(`/ra-bills/${billId}/items`, data),
+  deleteItem: (billId: string, itemId: string) =>
+    api.delete(`/ra-bills/${billId}/items/${itemId}`),
+  addDeduction: (billId: string, data: {
+    deduction_type: string;
+    description?: string;
+    amount: string;
+  }) => api.post<import("../types").RABillDeduction>(`/ra-bills/${billId}/deductions`, data),
+  updateDeduction: (billId: string, deductionId: string, data: {
+    deduction_type: string;
+    description?: string;
+    amount: string;
+  }) => api.put<import("../types").RABillDeduction>(`/ra-bills/${billId}/deductions/${deductionId}`, data),
+  deleteDeduction: (billId: string, deductionId: string) =>
+    api.delete(`/ra-bills/${billId}/deductions/${deductionId}`),
+};

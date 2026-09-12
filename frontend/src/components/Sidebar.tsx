@@ -60,6 +60,13 @@ function Sidebar({ role }: SidebarProps) {
         </NavLink>
 
         <NavLink
+          to="/ra-bills"
+          className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
+        >
+          RA Bills
+        </NavLink>
+
+        <NavLink
           to="/departments"
           className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
         >
