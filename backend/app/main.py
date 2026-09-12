@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import audit_logs, auth, boq_items, boq_revisions, boqs, contractors, contracts, departments, projects, users, measurements
+from app.api.routers import audit_logs, auth, boq_items, boq_revisions, boqs, contractors, contracts, departments, projects, ra_bills, users, measurements
 from app.core.config import settings
 
 app = FastAPI(
@@ -29,6 +29,7 @@ app.include_router(boq_items.router, prefix="/api/v1", tags=["BOQ Items"])
 app.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"])
 app.include_router(audit_logs.router, prefix="/api/v1/audit-logs", tags=["Audit Logs"])
 app.include_router(measurements.router, prefix="/api/v1", tags=["Measurements"])
+app.include_router(ra_bills.router, prefix="/api/v1", tags=["RA Bills"])
 
 
 @app.get("/health", tags=["System"])
