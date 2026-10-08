@@ -1,0 +1,342 @@
+{
+  "architecture_distinction": {
+    "A_Ground_Truth": "backend/tests/fixtures/golden_project/v1_ground_truth.json",
+    "B_Source_Evidence": "the future synthetic PDF/XLSX files specified in this document",
+    "C_Evaluation_Expectations": "future expected extraction/analytical/RAG expectations built against these synthetic files"
+  },
+  "canonical_context": {
+    "project_code": "PWD-2026-001",
+    "project_name": "District Hospital Infrastructure Upgrade",
+    "contract": "CNT-PWD-2026-001",
+    "contract_value": "485000000.00"
+  },
+  "artifacts": [
+    {
+      "filename": "contract_agreement.pdf",
+      "format": "PDF",
+      "category": "contract",
+      "purpose": "Define the legal and financial agreement for the project.",
+      "expected_sections_or_sheets": [
+        "Cover Page",
+        "Terms & Conditions",
+        "Financial Summary"
+      ],
+      "expected_fields": [
+        "Project Name",
+        "Project Code",
+        "Contract Number",
+        "Contract Value",
+        "Signatures"
+      ],
+      "canonical_business_facts": {
+        "contract_number": "CNT-PWD-2026-001",
+        "contract_value": "485000000.00"
+      },
+      "relationship_to_golden_dataset": "Source of contract baseline values in V1 JSON.",
+      "expected_extraction_targets": [
+        "Contract Value",
+        "Contract Number"
+      ],
+      "validation_rules": [
+        "Contract value must be exactly 485000000.00"
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Scanned signatures, watermarks, varying fonts."
+      ],
+      "prohibited_ambiguities": [
+        "Multiple differing contract values in the same document."
+      ],
+      "future_purpose": "V2/V3 NLP extraction for penalty clauses and legal constraints."
+    },
+    {
+      "filename": "approved_boq.xlsx",
+      "format": "XLSX",
+      "category": "boq",
+      "purpose": "Provide the itemized breakdown of the contract value.",
+      "expected_sections_or_sheets": [
+        "BOQ Items"
+      ],
+      "expected_fields": [
+        "Item Code",
+        "Item Number",
+        "Description",
+        "Unit",
+        "Quantity",
+        "Rate",
+        "Amount"
+      ],
+      "canonical_business_facts": {
+        "items": [
+          {"item_code": "EW-01", "quantity": "50000.000", "rate": "450.00", "amount": "22500000.00"},
+          {"item_code": "CC-01", "quantity": "10000.000", "rate": "4500.00", "amount": "45000000.00"},
+          {"item_code": "RCC-01", "quantity": "22000.000", "rate": "8500.00", "amount": "187000000.00"},
+          {"item_code": "ST-01", "quantity": "2000.000", "rate": "65000.00", "amount": "130000000.00"},
+          {"item_code": "BW-01", "quantity": "10000.000", "rate": "6200.00", "amount": "62000000.00"},
+          {"item_code": "PL-01", "quantity": "40680.000", "rate": "250.00", "amount": "10170000.00"},
+          {"item_code": "FL-01", "quantity": "8000.000", "rate": "1200.00", "amount": "9600000.00"},
+          {"item_code": "PT-01", "quantity": "30000.000", "rate": "150.00", "amount": "4500000.00"},
+          {"item_code": "DR-01", "quantity": "500.000", "rate": "3500.00", "amount": "1750000.00"},
+          {"item_code": "AL-01", "quantity": "2600.000", "rate": "4800.00", "amount": "12480000.00"}
+        ]
+      },
+      "relationship_to_golden_dataset": "Maps 1:1 with golden_data['boq']['items'].",
+      "expected_extraction_targets": [
+        "All 10 items, quantities, rates, and computed amounts."
+      ],
+      "validation_rules": [
+        "Sum of all item amounts must exactly equal contract value 485000000.00"
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Merged header cells, hidden columns, complex Excel styling."
+      ],
+      "prohibited_ambiguities": [
+        "Duplicate item codes, missing amounts."
+      ],
+      "future_purpose": "V2 Excel ingestion and layout-aware tabular parsing."
+    },
+    {
+      "filename": "measurement_book.xlsx",
+      "format": "XLSX",
+      "category": "measurements",
+      "purpose": "Log all physical measurements taken on site.",
+      "expected_sections_or_sheets": [
+        "Measurements"
+      ],
+      "expected_fields": [
+        "Reference",
+        "Date",
+        "Item Code",
+        "Quantity",
+        "Location",
+        "Remarks"
+      ],
+      "canonical_business_facts": {
+        "measurements": [
+          {"reference": "MB-2026-04-001", "date": "2026-04-25", "boq_item_code": "EW-01", "quantity": "21500.000"},
+          {"reference": "MB-2026-05-002", "date": "2026-05-25", "boq_item_code": "EW-01", "quantity": "28500.000"},
+          {"reference": "MB-2026-05-003", "date": "2026-05-25", "boq_item_code": "CC-01", "quantity": "1460.000"},
+          {"reference": "MB-2026-06-004", "date": "2026-06-25", "boq_item_code": "CC-01", "quantity": "3540.000"},
+          {"reference": "MB-2026-06-005", "date": "2026-06-25", "boq_item_code": "RCC-01", "quantity": "2110.000"},
+          {"reference": "MB-2026-07-006", "date": "2026-07-25", "boq_item_code": "RCC-01", "quantity": "3000.000"},
+          {"reference": "MB-2026-07-007", "date": "2026-07-25", "boq_item_code": "ST-01", "quantity": "355.000"},
+          {"reference": "MB-2026-08-008", "date": "2026-08-25", "boq_item_code": "RCC-01", "quantity": "3000.000"},
+          {"reference": "MB-2026-08-009", "date": "2026-08-25", "boq_item_code": "ST-01", "quantity": "427.000"},
+          {"reference": "MB-2026-09-010", "date": "2026-09-25", "boq_item_code": "RCC-01", "quantity": "2500.000"},
+          {"reference": "MB-2026-09-011", "date": "2026-09-25", "boq_item_code": "ST-01", "quantity": "500.000"},
+          {"reference": "MB-2026-09-012", "date": "2026-09-25", "boq_item_code": "BW-01", "quantity": "1500.000"}
+        ]
+      },
+      "relationship_to_golden_dataset": "Source of truth for the 12 measurements in golden_data.",
+      "expected_extraction_targets": [
+        "Reference numbers, dates, codes, quantities."
+      ],
+      "validation_rules": [
+        "Must contain exactly 12 measurements.",
+        "All measurement references must be unique.",
+        "Every referenced BOQ item code must exist in the approved BOQ.",
+        "All quantities must be non-negative and expressed to a maximum of 3 decimal places."
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Strikethroughs, non-standard date formats (e.g., 25-Apr-2026)."
+      ],
+      "prohibited_ambiguities": [
+        "Measurements referring to invalid BOQ items."
+      ],
+      "future_purpose": "V3 OCR and handwriting simulation."
+    },
+    {
+      "filename": "RA-04.xlsx",
+      "format": "XLSX",
+      "category": "billing",
+      "purpose": "Provide the billing calculation for RA-04.",
+      "expected_sections_or_sheets": [
+        "Cover",
+        "Measurement Links",
+        "Calculations"
+      ],
+      "expected_fields": [
+        "Bill Number",
+        "Gross Amount",
+        "Linked Measurements"
+      ],
+      "canonical_business_facts": {
+        "bill_number": "RA-04",
+        "linked_measurements_count": 1,
+        "gross_amount": "9675000.00"
+      },
+      "relationship_to_golden_dataset": "Populates RA-04 in V1 RA Bills.",
+      "expected_extraction_targets": [
+        "Gross amount and linked MB references."
+      ],
+      "validation_rules": [
+        "Must explicitly link 1 measurement."
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Empty rows, varying column widths."
+      ],
+      "prohibited_ambiguities": [
+        "Mismatch between stated gross amount and sum of measurements."
+      ],
+      "future_purpose": "Cross-document reconciliation testing."
+    },
+    {
+      "filename": "RA-06.xlsx",
+      "format": "XLSX",
+      "category": "billing",
+      "purpose": "Provide the billing calculation for RA-06.",
+      "expected_sections_or_sheets": [
+        "Cover",
+        "Measurement Links",
+        "Calculations"
+      ],
+      "expected_fields": [
+        "Bill Number",
+        "Gross Amount",
+        "Linked Measurements"
+      ],
+      "canonical_business_facts": {
+        "bill_number": "RA-06",
+        "linked_measurements_count": 4,
+        "gross_amount": "53260000.00"
+      },
+      "relationship_to_golden_dataset": "Populates RA-06 in V1 RA Bills.",
+      "expected_extraction_targets": [
+        "Gross amount and linked MB references."
+      ],
+      "validation_rules": [
+        "Must explicitly link 4 measurements."
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Subtotals, carrying forward previous bill amounts."
+      ],
+      "prohibited_ambiguities": [
+        "Mismatch between stated gross amount and sum of measurements."
+      ],
+      "future_purpose": "Cross-document reconciliation testing."
+    },
+    {
+      "filename": "RA-09.xlsx",
+      "format": "XLSX",
+      "category": "billing",
+      "purpose": "Provide the billing calculation for RA-09.",
+      "expected_sections_or_sheets": [
+        "Cover",
+        "Measurement Links",
+        "Calculations"
+      ],
+      "expected_fields": [
+        "Bill Number",
+        "Gross Amount",
+        "Linked Measurements",
+        "Cumulative Total"
+      ],
+      "canonical_business_facts": {
+        "bill_number": "RA-09",
+        "linked_measurements_count": 7,
+        "gross_amount": "164880000.00",
+        "cumulative_measurements": 12,
+        "cumulative_amount": "227815000.00"
+      },
+      "relationship_to_golden_dataset": "Populates RA-09 in V1 RA Bills.",
+      "expected_extraction_targets": [
+        "Gross amount and linked MB references."
+      ],
+      "validation_rules": [
+        "Must explicitly link 7 measurements."
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Cumulative summaries including previous RA bills."
+      ],
+      "prohibited_ambiguities": [
+        "Mismatch between stated gross amount and sum of measurements."
+      ],
+      "future_purpose": "Cross-document reconciliation testing."
+    },
+    {
+      "filename": "baseline_schedule.xlsx",
+      "format": "XLSX",
+      "category": "planning",
+      "purpose": "Define the planned physical and financial progress curve.",
+      "expected_sections_or_sheets": [
+        "S-Curve Data"
+      ],
+      "expected_fields": [
+        "Date",
+        "Planned Percentage"
+      ],
+      "canonical_business_facts": {
+        "periods": [
+          {"date": "2026-04-30", "planned_percentage": "5.00"},
+          {"date": "2026-05-31", "planned_percentage": "12.00"},
+          {"date": "2026-06-30", "planned_percentage": "22.00"},
+          {"date": "2026-07-31", "planned_percentage": "35.00"},
+          {"date": "2026-08-31", "planned_percentage": "50.00"},
+          {"date": "2026-09-30", "planned_percentage": "66.00"},
+          {"date": "2026-10-31", "planned_percentage": "82.00"},
+          {"date": "2026-11-30", "planned_percentage": "100.00"}
+        ],
+        "period_count": 8
+      },
+      "relationship_to_golden_dataset": "Matches the 8 EVM Baseline periods in golden_data.",
+      "expected_extraction_targets": [
+        "The array of dates and their corresponding percentages."
+      ],
+      "validation_rules": [
+        "Must contain exactly 8 periods ending at 100%."
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Embedded charts, visual S-curves."
+      ],
+      "prohibited_ambiguities": [
+        "Dates not at the end of the month."
+      ],
+      "future_purpose": "Chart/Image parsing and RAG planning evaluations."
+    },
+    {
+      "filename": "progress_reports.zip",
+      "format": "PDF",
+      "category": "progress",
+      "purpose": "Provide narrative and summary statistics for monthly site progress (representing 6 PDFs).",
+      "expected_sections_or_sheets": [
+        "Executive Summary",
+        "Financial Status",
+        "EVM Snapshot"
+      ],
+      "expected_fields": [
+        "Month",
+        "PV",
+        "EV",
+        "AC"
+      ],
+      "canonical_business_facts": {
+        "files": [
+          "progress_report_2026-04.pdf",
+          "progress_report_2026-05.pdf",
+          "progress_report_2026-06.pdf",
+          "progress_report_2026-07.pdf",
+          "progress_report_2026-08.pdf",
+          "progress_report_2026-09.pdf"
+        ],
+        "september_evm_evaluation": {
+          "PV": "320100000.00",
+          "EV": "227815000.00",
+          "AC": "227815000.00"
+        }
+      },
+      "relationship_to_golden_dataset": "Validates EVM Checkpoints functionality in V1.",
+      "expected_extraction_targets": [
+        "EVM metrics (PV, EV, AC) for each respective month."
+      ],
+      "validation_rules": [
+        "PV, EV, AC must match canonical calculations exactly."
+      ],
+      "intentionally_allowed_formatting_noise": [
+        "Photographs of construction site, narrative text."
+      ],
+      "prohibited_ambiguities": [
+        "Conflicting EVM numbers in text vs tables."
+      ],
+      "future_purpose": "V4 Multi-modal extraction and RAG summarization."
+    }
+  ]
+}
