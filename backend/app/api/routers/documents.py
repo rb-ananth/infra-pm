@@ -7,9 +7,9 @@ import io
 from app.api.deps import get_db, require_roles
 from app.models.user import User
 from app.models.document import DocumentType
-from app.schemas.document import DocumentResponse, DocumentFactResponse
+from app.schemas.document import DocumentResponse, DocumentFactResponse, BoqExtractionSummaryResponse
 from app.services.document_ingestion_service import register_document, ingest_document
-from app.services.document_intelligence_service import extract_contract_facts, reconcile_contract_facts, DocumentNotFoundError, DocumentStateError, ContractNotLinkedError
+from app.services.document_intelligence_service import extract_contract_facts, reconcile_contract_facts, extract_boq_facts, DocumentNotFoundError, DocumentStateError, ContractNotLinkedError
 from app.models.document import Document
 
 router = APIRouter()
@@ -113,4 +113,18 @@ def reconcile_facts_endpoint(
     except DocumentStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ContractNotLinkedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{document_id}/intelligence/boq/extract", response_model=BoqExtractionSummaryResponse)
+def extract_boq_facts_endpoint(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("Admin", "Project Manager"))
+) -> Any:
+    try:
+        summary = extract_boq_facts(db=db, document_id=document_id, current_user=current_user)
+        return summary
+    except DocumentNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except DocumentStateError as e:
         raise HTTPException(status_code=400, detail=str(e))

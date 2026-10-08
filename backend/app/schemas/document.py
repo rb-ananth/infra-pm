@@ -76,3 +76,10 @@ class DocumentFactResponse(DocumentFactBase):
     document_id: uuid.UUID
     document_chunk_id: uuid.UUID | None
     created_at: datetime
+
+class BoqExtractionSummaryResponse(BaseModel):
+    rows_processed: int
+    valid_items: int
+    facts_extracted: int
+    validation_errors: int
+    source_discrepancies: int
