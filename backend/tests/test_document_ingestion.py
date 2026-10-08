@@ -26,19 +26,21 @@ def db_session():
     finally:
         db.close()
 
-@pytest.fixture(autouse=True)
-def clean_db(db_session):
-    """Ensure database is clean before and after each test"""
-    from app.models.document import DocumentFact, DocumentChunk, Document
-    db_session.query(DocumentFact).delete()
-    db_session.query(DocumentChunk).delete()
-    db_session.query(Document).delete()
-    db_session.commit()
-    yield
-    db_session.query(DocumentFact).delete()
-    db_session.query(DocumentChunk).delete()
-    db_session.query(Document).delete()
-    db_session.commit()
+@pytest.fixture
+def managed_docs(db_session):
+    doc_ids = []
+    yield doc_ids
+    if doc_ids:
+        from app.models.document import DocumentFact, DocumentChunk, Document
+        from app.models.audit_log import AuditLog
+        db_session.query(AuditLog).filter(
+            AuditLog.entity_name == "Document",
+            AuditLog.entity_id.in_(doc_ids)
+        ).delete(synchronize_session=False)
+        db_session.query(DocumentFact).filter(DocumentFact.document_id.in_(doc_ids)).delete(synchronize_session=False)
+        db_session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
+        db_session.query(Document).filter(Document.id.in_(doc_ids)).delete(synchronize_session=False)
+        db_session.commit()
 
 def get_token(client, email, password):
     response = client.post("/api/v1/auth/login", data={"username": email, "password": password})
@@ -58,7 +60,7 @@ def test_document_parser_sha256():
     assert hash_val == "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3"
     assert stream.tell() == 0
 
-def test_document_lifecycle(db_session, client):
+def test_document_lifecycle(db_session, client, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     pdf_path = os.path.join(SYNTHETIC_EVIDENCE_DIR, "contract_agreement.pdf")
     with open(pdf_path, "rb") as f:
@@ -76,6 +78,7 @@ def test_document_lifecycle(db_session, client):
     )
     assert response.status_code == 201, response.text
     doc_id = response.json()["id"]
+    managed_docs.append(doc_id)
 
     doc = db_session.query(Document).filter_by(id=doc_id).first()
     assert doc.ingestion_status == "PENDING"
@@ -95,7 +98,7 @@ def test_document_lifecycle(db_session, client):
     assert doc.chunks[0].page_number == 1
     assert "CONTRACT AGREEMENT" in doc.chunks[0].content.upper()
 
-def test_duplicate_document_registration(db_session, client):
+def test_duplicate_document_registration(db_session, client, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     pdf_path = os.path.join(SYNTHETIC_EVIDENCE_DIR, "contract_agreement.pdf")
     with open(pdf_path, "rb") as f:
@@ -108,6 +111,7 @@ def test_duplicate_document_registration(db_session, client):
         headers={"Authorization": f"Bearer {token}"}
     )
     assert response1.status_code == 201
+    managed_docs.append(response1.json()["id"])
 
     # Duplicate registration should safely return existing
     response2 = client.post(
@@ -119,7 +123,7 @@ def test_duplicate_document_registration(db_session, client):
     assert response2.status_code == 201
     assert response1.json()["id"] == response2.json()["id"]
 
-def test_golden_dataset_validation(db_session, client):
+def test_golden_dataset_validation(db_session, client, managed_docs):
     """
     Parses actual evidence documents and directly verifies values against v1_ground_truth.json
     """
@@ -138,6 +142,7 @@ def test_golden_dataset_validation(db_session, client):
             headers={"Authorization": f"Bearer {token}"}
         )
     doc_id = response.json()["id"]
+    managed_docs.append(doc_id)
 
     with open(xlsx_path, "rb") as f:
         client.post(f"/api/v1/documents/{doc_id}/ingest", files={"file": ("approved_boq.xlsx", f.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
@@ -177,6 +182,7 @@ def test_golden_dataset_validation(db_session, client):
         mb_bytes = f.read()
     response = client.post("/api/v1/documents/", data={"document_type": "MEASUREMENT_BOOK", "document_name": "MB"}, files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
     mb_id = response.json()["id"]
+    managed_docs.append(mb_id)
     client.post(f"/api/v1/documents/{mb_id}/ingest", files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
 
     mb_doc = db_session.query(Document).filter_by(id=mb_id).first()
@@ -213,7 +219,7 @@ def test_golden_dataset_validation(db_session, client):
     assert len(seen_references) == 12, "Measurement Book must contain exactly 12 unique references"
 
 
-def test_canonical_db_immutability(db_session, client):
+def test_canonical_db_immutability(db_session, client, managed_docs):
     """
     Ensures that ingestion operations do absolutely zero mutations
     to the canonical BOQ and Measurements tables.
@@ -242,6 +248,7 @@ def test_canonical_db_immutability(db_session, client):
         headers={"Authorization": f"Bearer {token}"}
     )
     doc_id = response.json()["id"]
+    managed_docs.append(doc_id)
     client.post(
         f"/api/v1/documents/{doc_id}/ingest",
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
