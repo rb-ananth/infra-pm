@@ -120,7 +120,27 @@ try:
     ).first()
 
     if not contract:
-        fail(f"Contract {CONTRACT_NUMBER} does not exist for {PROJECT_CODE}.")
+        from app.models.contractor import Contractor
+        contractor = db.query(Contractor).filter(Contractor.registration_number == "CTR-001").first()
+        if not contractor:
+            fail("Contractor CTR-001 does not exist.")
+
+        contract = Contract(
+            contract_number=CONTRACT_NUMBER,
+            project_id=project.id,
+            contractor_id=contractor.id,
+            contract_type="Works",
+            award_date=date(2026, 4, 15),
+            contract_value=EXPECTED_CONTRACT_VALUE,
+            start_date=date(2026, 4, 15),
+            original_completion_date=date(2027, 3, 31),
+            current_completion_date=date(2027, 3, 31),
+            status="Active"
+        )
+        db.add(contract)
+        db.commit()
+        db.refresh(contract)
+        print(f"Created Contract {CONTRACT_NUMBER} for {PROJECT_CODE}.")
 
     if contract.contract_value != EXPECTED_CONTRACT_VALUE:
         fail(
@@ -228,8 +248,7 @@ try:
 
     db.refresh(revision)
 
-    revision_detail = boq_service._revision_detail(db, revision)
-    boq_total = revision_detail["total"]
+    boq, rev, items, boq_total = boq_service.revision_detail(db, revision.id)
 
     if boq_total != EXPECTED_CONTRACT_VALUE:
         fail(
