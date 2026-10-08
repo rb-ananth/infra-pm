@@ -76,4 +76,3 @@ class DocumentFactResponse(DocumentFactBase):
     document_id: uuid.UUID
     document_chunk_id: uuid.UUID | None
     created_at: datetime
-

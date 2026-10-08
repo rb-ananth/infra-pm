@@ -20,11 +20,11 @@ def register_document(
     file_stream: BinaryIO
 ) -> Document:
     sha256_hash = DocumentParser.calculate_sha256(file_stream)
-    
+
     existing = db.query(Document).filter(Document.sha256_hash == sha256_hash).first()
     if existing:
         return existing
-        
+
     doc = Document(
         project_id=project_id,
         contract_id=contract_id,
@@ -45,7 +45,7 @@ def register_document(
         db.rollback()
         # Race condition handling
         return db.query(Document).filter(Document.sha256_hash == sha256_hash).first()
-    
+
     add_audit_log(
         db=db,
         user_id=user_id,
@@ -54,21 +54,21 @@ def register_document(
         action="REGISTER",
         changes={"filename": source_filename, "hash": sha256_hash}
     )
-    
+
     return doc
 
 def ingest_document(db: Session, user_id: uuid.UUID | None, document_id: uuid.UUID, file_stream: BinaryIO) -> Document:
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise ValueError("Document not found")
-        
+
     if doc.ingestion_status == IngestionStatus.COMPLETED:
         return doc
-        
+
     try:
         doc.ingestion_status = IngestionStatus.PROCESSING
         db.flush()
-        
+
         add_audit_log(
             db=db,
             user_id=user_id,
@@ -77,7 +77,7 @@ def ingest_document(db: Session, user_id: uuid.UUID | None, document_id: uuid.UU
             action="INGEST_START",
             changes={"status": "PROCESSING"}
         )
-        
+
         file_stream.seek(0)
         chunks_data = []
         if doc.file_extension.lower() == "pdf":
@@ -86,7 +86,7 @@ def ingest_document(db: Session, user_id: uuid.UUID | None, document_id: uuid.UU
             chunks_data = ExcelParser.parse(file_stream)
         else:
             raise ValueError(f"Unsupported file extension: {doc.file_extension}")
-            
+
         for chunk_data in chunks_data:
             chunk = DocumentChunk(
                 document_id=doc.id,
@@ -99,7 +99,7 @@ def ingest_document(db: Session, user_id: uuid.UUID | None, document_id: uuid.UU
                 row_end=chunk_data.get("row_end")
             )
             db.add(chunk)
-            
+
         doc.ingestion_status = IngestionStatus.COMPLETED
         add_audit_log(
             db=db,
@@ -126,5 +126,5 @@ def ingest_document(db: Session, user_id: uuid.UUID | None, document_id: uuid.UU
         )
         db.commit()
         raise e
-        
+
     return doc

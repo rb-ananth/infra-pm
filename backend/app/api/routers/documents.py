@@ -26,9 +26,9 @@ def create_document(
     # Read file completely into memory
     file_bytes = file.file.read()
     file_stream = io.BytesIO(file_bytes)
-    
+
     file_extension = file.filename.split('.')[-1] if '.' in file.filename else ""
-    
+
     # Register (PENDING)
     doc = register_document(
         db=db,
@@ -43,7 +43,7 @@ def create_document(
         file_size_bytes=len(file_bytes),
         file_stream=file_stream
     )
-    
+
     db.commit()
     db.refresh(doc)
     return doc
@@ -58,10 +58,10 @@ def ingest_document_endpoint(
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-        
+
     file_bytes = file.file.read()
     file_stream = io.BytesIO(file_bytes)
-    
+
     ingest_document(db=db, user_id=current_user.id, document_id=doc.id, file_stream=file_stream)
     db.refresh(doc)
     return doc
@@ -83,4 +83,3 @@ def get_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     return doc
-

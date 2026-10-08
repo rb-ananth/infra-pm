@@ -40,7 +40,7 @@ class Document(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=True, index=True)
     contract_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("contracts.id"), nullable=True, index=True)
-    
+
     document_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     document_name: Mapped[str] = mapped_column(String(255), nullable=False)
     source_filename: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -51,9 +51,9 @@ class Document(Base):
     ingestion_status: Mapped[str] = mapped_column(String(50), nullable=False, default=IngestionStatus.PENDING)
     source_system: Mapped[str] = mapped_column(String(100), nullable=True)
     document_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    
+
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True)
-    
+
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
@@ -70,16 +70,16 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    
+
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sheet_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     row_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     row_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section: Mapped[str | None] = mapped_column(String(255), nullable=True)
     clause_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    
+
     parent_chunk_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True)
-    
+
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
@@ -93,7 +93,7 @@ class DocumentFact(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
     document_chunk_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True, index=True)
-    
+
     fact_type: Mapped[str] = mapped_column(String(100), nullable=False)
     field_name: Mapped[str] = mapped_column(String(100), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
@@ -102,7 +102,7 @@ class DocumentFact(Base):
     confidence: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     source_reference: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     validation_status: Mapped[str] = mapped_column(String(50), nullable=False, default=ValidationStatus.UNVALIDATED)
-    
+
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
