@@ -1,0 +1,284 @@
+{
+  "project": {
+    "code": "PWD-2026-001",
+    "name": "District Hospital Infrastructure Upgrade",
+    "contract_number": "CNT-PWD-2026-001",
+    "contract_value": "485000000.00"
+  },
+  "contract": {
+    "contract_number": "CNT-PWD-2026-001",
+    "linked_project": "PWD-2026-001",
+    "contract_value": "485000000.00"
+  },
+  "boq": {
+    "boq_number": "BOQ-DEMO-001",
+    "approved_revision_number": "1",
+    "revision_status": "Approved",
+    "item_count": 10,
+    "total_boq_value": "485000000.00",
+    "difference": "0.00",
+    "items": [
+      {
+        "item_code": "EW-01",
+        "item_number": "1.1",
+        "description": "Earthwork in excavation for foundation",
+        "unit": "CUM",
+        "quantity": "50000.000",
+        "rate": "450.00",
+        "amount": "22500000.00"
+      },
+      {
+        "item_code": "CC-01",
+        "item_number": "2.1",
+        "description": "Providing and laying PCC 1:4:8",
+        "unit": "CUM",
+        "quantity": "10000.000",
+        "rate": "4500.00",
+        "amount": "45000000.00"
+      },
+      {
+        "item_code": "RCC-01",
+        "item_number": "3.1",
+        "description": "RCC work in columns and footings (M25)",
+        "unit": "CUM",
+        "quantity": "22000.000",
+        "rate": "8500.00",
+        "amount": "187000000.00"
+      },
+      {
+        "item_code": "ST-01",
+        "item_number": "4.1",
+        "description": "Thermo-mechanically treated steel reinforcement",
+        "unit": "MT",
+        "quantity": "2000.000",
+        "rate": "65000.00",
+        "amount": "130000000.00"
+      },
+      {
+        "item_code": "BW-01",
+        "item_number": "5.1",
+        "description": "Brick work with common burnt clay F.P.S.",
+        "unit": "CUM",
+        "quantity": "10000.000",
+        "rate": "6200.00",
+        "amount": "62000000.00"
+      },
+      {
+        "item_code": "PL-01",
+        "item_number": "6.1",
+        "description": "12 mm cement plaster of mix 1:6",
+        "unit": "SQM",
+        "quantity": "40680.000",
+        "rate": "250.00",
+        "amount": "10170000.00"
+      },
+      {
+        "item_code": "FL-01",
+        "item_number": "7.1",
+        "description": "Vitrified floor tiles 600x600mm",
+        "unit": "SQM",
+        "quantity": "8000.000",
+        "rate": "1200.00",
+        "amount": "9600000.00"
+      },
+      {
+        "item_code": "PT-01",
+        "item_number": "8.1",
+        "description": "Wall painting with premium acrylic emulsion",
+        "unit": "SQM",
+        "quantity": "30000.000",
+        "rate": "150.00",
+        "amount": "450000.00"
+      },
+      {
+        "item_code": "DR-01",
+        "item_number": "9.1",
+        "description": "Flush door shutters 35mm thick",
+        "unit": "SQM",
+        "quantity": "500.000",
+        "rate": "3500.00",
+        "amount": "1750000.00"
+      },
+      {
+        "item_code": "AL-01",
+        "item_number": "10.1",
+        "description": "Aluminum glazed windows",
+        "unit": "SQM",
+        "quantity": "2600.000",
+        "rate": "4800.00",
+        "amount": "12480000.00"
+      }
+    ]
+  },
+  "measurements": [
+    {
+      "reference": "MB-2026-04-001",
+      "measurement_date": "2026-04-25",
+      "boq_item_code": "EW-01",
+      "quantity": "21500.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-05-002",
+      "measurement_date": "2026-05-25",
+      "boq_item_code": "EW-01",
+      "quantity": "28500.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-05-003",
+      "measurement_date": "2026-05-25",
+      "boq_item_code": "CC-01",
+      "quantity": "1460.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-06-004",
+      "measurement_date": "2026-06-25",
+      "boq_item_code": "CC-01",
+      "quantity": "3540.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-06-005",
+      "measurement_date": "2026-06-25",
+      "boq_item_code": "RCC-01",
+      "quantity": "2110.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-07-006",
+      "measurement_date": "2026-07-25",
+      "boq_item_code": "RCC-01",
+      "quantity": "3000.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-07-007",
+      "measurement_date": "2026-07-25",
+      "boq_item_code": "ST-01",
+      "quantity": "355.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-08-008",
+      "measurement_date": "2026-08-25",
+      "boq_item_code": "RCC-01",
+      "quantity": "3000.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-08-009",
+      "measurement_date": "2026-08-25",
+      "boq_item_code": "ST-01",
+      "quantity": "427.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-09-010",
+      "measurement_date": "2026-09-25",
+      "boq_item_code": "RCC-01",
+      "quantity": "2500.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-09-011",
+      "measurement_date": "2026-09-25",
+      "boq_item_code": "ST-01",
+      "quantity": "500.000",
+      "status": "Approved"
+    },
+    {
+      "reference": "MB-2026-09-012",
+      "measurement_date": "2026-09-25",
+      "boq_item_code": "BW-01",
+      "quantity": "1500.000",
+      "status": "Approved"
+    }
+  ],
+  "ra_bills": [
+    {
+      "bill_number": "RA-04",
+      "bill_date": "2026-04-28",
+      "status": "Approved",
+      "gross_amount": "9675000.00",
+      "net_payable": "9675000.00",
+      "linked_measurements": 1
+    },
+    {
+      "bill_number": "RA-06",
+      "bill_date": "2026-06-28",
+      "status": "Approved",
+      "gross_amount": "53260000.00",
+      "net_payable": "53260000.00",
+      "linked_measurements": 4
+    },
+    {
+      "bill_number": "RA-09",
+      "bill_date": "2026-09-28",
+      "status": "Approved",
+      "gross_amount": "164880000.00",
+      "net_payable": "164880000.00",
+      "linked_measurements": 7
+    }
+  ],
+  "evm": {
+    "baseline_number": "BL-DEMO-001",
+    "baseline_status": "Approved",
+    "period_count": 8,
+    "periods": [
+      {"period_date": "2026-04-30", "planned_percentage": "5.00"},
+      {"period_date": "2026-05-31", "planned_percentage": "12.00"},
+      {"period_date": "2026-06-30", "planned_percentage": "22.00"},
+      {"period_date": "2026-07-31", "planned_percentage": "35.00"},
+      {"period_date": "2026-08-31", "planned_percentage": "50.00"},
+      {"period_date": "2026-09-30", "planned_percentage": "66.00"},
+      {"period_date": "2026-10-31", "planned_percentage": "82.00"},
+      {"period_date": "2026-11-30", "planned_percentage": "100.00"}
+    ],
+    "checkpoints": [
+      {
+        "date": "2026-04-30",
+        "pv": "24250000.00",
+        "ev": "9675000.00",
+        "ac": "9675000.00",
+        "planned_percentage": "5.00"
+      },
+      {
+        "date": "2026-05-31",
+        "pv": "58200000.00",
+        "ev": "29070000.00",
+        "ac": "29070000.00",
+        "planned_percentage": "12.00"
+      },
+      {
+        "date": "2026-06-30",
+        "pv": "106700000.00",
+        "ev": "62935000.00",
+        "ac": "62935000.00",
+        "planned_percentage": "22.00"
+      },
+      {
+        "date": "2026-07-31",
+        "pv": "169750000.00",
+        "ev": "111510000.00",
+        "ac": "111510000.00",
+        "planned_percentage": "35.00"
+      },
+      {
+        "date": "2026-08-31",
+        "pv": "242500000.00",
+        "ev": "164765000.00",
+        "ac": "164765000.00",
+        "planned_percentage": "50.00"
+      },
+      {
+        "date": "2026-09-30",
+        "pv": "320100000.00",
+        "ev": "227815000.00",
+        "ac": "227815000.00",
+        "planned_percentage": "66.00"
+      }
+    ]
+  }
+}
