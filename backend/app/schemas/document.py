@@ -101,3 +101,10 @@ class RABillExtractionSummaryResponse(BaseModel):
     unknown_links: int
     reconciliation_matches: int
     reconciliation_mismatches: int
+
+class EVMExtractionSummaryResponse(BaseModel):
+    facts_extracted: int
+    valid_facts: int
+    validation_errors: int
+    reconciliation_matches: int
+    reconciliation_mismatches: int

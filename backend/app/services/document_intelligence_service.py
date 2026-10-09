@@ -1146,3 +1146,216 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
     except Exception:
         db.rollback()
         raise
+
+def extract_evm_facts(db: Session, document_id: uuid.UUID, current_user: User) -> dict:
+    try:
+        import re
+        from decimal import Decimal, ROUND_HALF_UP
+        from app.services.evm_service import EVMService
+        from datetime import datetime
+
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            raise DocumentNotFoundError("Document not found")
+        if doc.document_type != DocumentType.PROGRESS_REPORT:
+            raise DocumentStateError(f"Extraction requires PROGRESS_REPORT document, got {doc.document_type}")
+        if doc.ingestion_status != IngestionStatus.COMPLETED:
+            raise DocumentStateError(f"Extraction requires COMPLETED ingestion, got {doc.ingestion_status}")
+
+        if not doc.project_id:
+            raise DocumentStateError("EVM extraction requires a linked project")
+
+        existing_facts = db.query(DocumentFact).filter(
+            DocumentFact.document_id == document_id,
+            DocumentFact.fact_type == "EVM_SNAPSHOT"
+        ).all()
+
+        unmatched_existing = {f.id: f for f in existing_facts}
+        chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).order_by(DocumentChunk.chunk_index).all()
+
+        summary = {
+            "facts_extracted": 0,
+            "valid_facts": 0,
+            "validation_errors": 0,
+            "reconciliation_matches": 0,
+            "reconciliation_mismatches": 0,
+        }
+
+        date_pattern = re.compile(r"PROGRESS REPORT:\s*([\d]{4}-[\d]{2}-[\d]{2})", re.IGNORECASE)
+        pv_pattern = re.compile(r"Planned Value\s*\([^)]*\):\s*(-?[\d.]+)", re.IGNORECASE)
+        ev_pattern = re.compile(r"Earned Value\s*\([^)]*\):\s*(-?[\d.]+)", re.IGNORECASE)
+        ac_pattern = re.compile(r"Actual Cost\s*\([^)]*\):\s*(-?[\d.]+)", re.IGNORECASE)
+
+        has_changes = False
+
+        for chunk in chunks:
+            text = chunk.content
+            if not text:
+                continue
+
+            date_matches = date_pattern.findall(text)
+            pv_matches = pv_pattern.findall(text)
+            ev_matches = ev_pattern.findall(text)
+            ac_matches = ac_pattern.findall(text)
+
+            if not (date_matches or pv_matches or ev_matches or ac_matches):
+                continue
+
+            val_errors = []
+
+            if len(date_matches) > 1: val_errors.append("Duplicate checkpoint date found")
+            if len(pv_matches) > 1: val_errors.append("Duplicate Planned Value found")
+            if len(ev_matches) > 1: val_errors.append("Duplicate Earned Value found")
+            if len(ac_matches) > 1: val_errors.append("Duplicate Actual Cost found")
+
+            if len(pv_matches) > 1 or len(ev_matches) > 1 or len(ac_matches) > 1:
+                summary.setdefault("duplicate_metrics", 0)
+                summary["duplicate_metrics"] += 1
+
+            checkpoint_date_str = date_matches[0].strip() if date_matches else None
+            pv_str = pv_matches[0].strip() if pv_matches else None
+            ev_str = ev_matches[0].strip() if ev_matches else None
+            ac_str = ac_matches[0].strip() if ac_matches else None
+
+            checkpoint_date = None
+            if checkpoint_date_str:
+                try:
+                    checkpoint_date = datetime.strptime(checkpoint_date_str, "%Y-%m-%d").date()
+                except:
+                    val_errors.append("Invalid checkpoint date format")
+            else:
+                val_errors.append("Missing checkpoint date")
+
+            pv_dec = None
+            if pv_str:
+                try:
+                    pv_dec = Decimal(pv_str)
+                    if pv_dec != pv_dec.quantize(Decimal('0.01')):
+                        val_errors.append("PV precision exceeds 2 decimal places")
+                    if pv_dec < 0: val_errors.append("Negative PV")
+                except:
+                    val_errors.append("Invalid PV format")
+            else:
+                val_errors.append("Missing Planned Value")
+
+            ev_dec = None
+            if ev_str:
+                try:
+                    ev_dec = Decimal(ev_str)
+                    if ev_dec != ev_dec.quantize(Decimal('0.01')):
+                        val_errors.append("EV precision exceeds 2 decimal places")
+                    if ev_dec < 0: val_errors.append("Negative EV")
+                except:
+                    val_errors.append("Invalid EV format")
+            else:
+                val_errors.append("Missing Earned Value")
+
+            ac_dec = None
+            if ac_str:
+                try:
+                    ac_dec = Decimal(ac_str)
+                    if ac_dec != ac_dec.quantize(Decimal('0.01')):
+                        val_errors.append("AC precision exceeds 2 decimal places")
+                    if ac_dec < 0: val_errors.append("Negative AC")
+                except:
+                    val_errors.append("Invalid AC format")
+            else:
+                val_errors.append("Missing Actual Cost")
+
+            recon_status = None
+            recon_details = []
+
+            if checkpoint_date:
+                # Fetch canonical EVM logic
+                try:
+                    canonical_evm = EVMService.get_evm(db, doc.project_id, checkpoint_date)
+                    recon_status = "MATCH"
+
+                    if pv_dec is not None and canonical_evm.pv != pv_dec:
+                        recon_status = "MISMATCH"
+                        recon_details.append(f"PV mismatch: expected {canonical_evm.pv}, got {pv_dec}")
+
+                    if ev_dec is not None and canonical_evm.ev != ev_dec:
+                        recon_status = "MISMATCH"
+                        recon_details.append(f"EV mismatch: expected {canonical_evm.ev}, got {ev_dec}")
+
+                    if ac_dec is not None and canonical_evm.ac != ac_dec:
+                        recon_status = "MISMATCH"
+                        recon_details.append(f"AC mismatch: expected {canonical_evm.ac}, got {ac_dec}")
+                except Exception as e:
+                    recon_status = "MISMATCH"
+                    recon_details.append(f"Could not calculate canonical EVM: {str(e)}")
+            else:
+                recon_status = "MISMATCH"
+                recon_details.append("No canonical EVM context (missing date)")
+
+            val_status = ValidationStatus.INVALID if val_errors else ValidationStatus.VALID
+
+            # Persist fact using chunk.id as stable source reference
+            metadata = {
+                "checkpoint_date": checkpoint_date_str,
+                "pv": pv_str,
+                "ev": ev_str,
+                "ac": ac_str,
+                "errors": val_errors,
+                "reconciliation_status": recon_status,
+                "reconciliation_errors": recon_details,
+                "page_number": chunk.page_number
+            }
+
+            val_value = f"{checkpoint_date_str or 'UNKNOWN'}"
+
+            matched_id = None
+            for fid, ef in unmatched_existing.items():
+                if ef.fact_type == "EVM_SNAPSHOT" and ef.document_chunk_id == chunk.id:
+                    matched_id = fid
+                    break
+
+            if matched_id:
+                ef = unmatched_existing.pop(matched_id)
+                if ef.value != val_value or ef.validation_status != val_status or ef.metadata_json != metadata or ef.source_reference != f"Page {chunk.page_number}":
+                    ef.value = val_value
+                    ef.validation_status = val_status
+                    ef.metadata_json = metadata
+                    ef.source_reference = f"Page {chunk.page_number}"
+                    has_changes = True
+            else:
+                fact = DocumentFact(
+                    document_id=document_id,
+                    document_chunk_id=chunk.id,
+                    fact_type="EVM_SNAPSHOT",
+                    field_name="checkpoint_date",
+                    value=val_value,
+                    validation_status=val_status,
+                    source_reference=f"Page {chunk.page_number}",
+                    metadata_json=metadata
+                )
+                db.add(fact)
+                has_changes = True
+
+            summary["facts_extracted"] += 1
+            if val_status == ValidationStatus.VALID:
+                summary["valid_facts"] += 1
+            else:
+                summary["validation_errors"] += 1
+
+            if recon_status == "MATCH":
+                summary["reconciliation_matches"] += 1
+            elif recon_status == "MISMATCH":
+                summary["reconciliation_mismatches"] += 1
+
+        for fid, ef in unmatched_existing.items():
+            db.delete(ef)
+            has_changes = True
+
+        if has_changes:
+            from app.services.audit_service import add_audit_log
+            add_audit_log(db, current_user.id, "Document", document_id, "EVM_FACTS_EXTRACTED", summary)
+            db.commit()
+        else:
+            db.rollback()
+
+        return summary
+    except Exception:
+        db.rollback()
+        raise
