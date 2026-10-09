@@ -74,6 +74,7 @@ def verify_project_access(project_id: uuid.UUID, allowed_projects: list[uuid.UUI
 def resolve_measurement_project(db: Session, measurement_id: uuid.UUID) -> uuid.UUID:
     from app.models.measurement import Measurement
     from app.models.boq_item import BoqItem
+    from app.models.boq_revision import BoqRevision
     from app.models.boq import Boq
     from app.models.contract import Contract
     from fastapi import HTTPException
@@ -81,7 +82,8 @@ def resolve_measurement_project(db: Session, measurement_id: uuid.UUID) -> uuid.
     contract = (
         db.query(Contract)
         .join(Boq, Boq.contract_id == Contract.id)
-        .join(BoqItem, BoqItem.boq_id == Boq.id)
+        .join(BoqRevision, BoqRevision.boq_id == Boq.id)
+        .join(BoqItem, BoqItem.revision_id == BoqRevision.id)
         .join(Measurement, Measurement.boq_item_id == BoqItem.id)
         .filter(Measurement.id == measurement_id)
         .first()
@@ -92,6 +94,7 @@ def resolve_measurement_project(db: Session, measurement_id: uuid.UUID) -> uuid.
 
 def resolve_boq_item_project(db: Session, boq_item_id: uuid.UUID) -> uuid.UUID:
     from app.models.boq_item import BoqItem
+    from app.models.boq_revision import BoqRevision
     from app.models.boq import Boq
     from app.models.contract import Contract
     from fastapi import HTTPException
@@ -99,7 +102,8 @@ def resolve_boq_item_project(db: Session, boq_item_id: uuid.UUID) -> uuid.UUID:
     contract = (
         db.query(Contract)
         .join(Boq, Boq.contract_id == Contract.id)
-        .join(BoqItem, BoqItem.boq_id == Boq.id)
+        .join(BoqRevision, BoqRevision.boq_id == Boq.id)
+        .join(BoqItem, BoqItem.revision_id == BoqRevision.id)
         .filter(BoqItem.id == boq_item_id)
         .first()
     )

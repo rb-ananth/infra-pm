@@ -28,9 +28,11 @@ def list_measurements(
 ):
     query = db.query(Measurement)
     if allowed_projects is not ADMIN_BYPASS:
+        from app.models.boq_revision import BoqRevision
         query = (
             query.join(BoqItem, Measurement.boq_item_id == BoqItem.id)
-            .join(Boq, BoqItem.boq_id == Boq.id)
+            .join(BoqRevision, BoqItem.revision_id == BoqRevision.id)
+            .join(Boq, BoqRevision.boq_id == Boq.id)
             .join(Contract, Boq.contract_id == Contract.id)
             .filter(Contract.project_id.in_(allowed_projects))
         )
