@@ -104,6 +104,7 @@ class RABillExtractionSummaryResponse(BaseModel):
 
 class EVMExtractionSummaryResponse(BaseModel):
     facts_extracted: int
+    duplicate_metrics: int = 0
     valid_facts: int
     validation_errors: int
     reconciliation_matches: int
