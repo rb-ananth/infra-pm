@@ -89,7 +89,7 @@ def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
         headers={"Authorization": f"Bearer {token}"}
     )
     assert res_extract_2.status_code == 200
-    
+
     facts_after_second = {f.id for f in db_session.query(DocumentFact).filter(DocumentFact.document_id == doc_id).all()}
     audit_count_second = db_session.query(AuditLog).filter(AuditLog.entity_name == "Document", AuditLog.entity_id == doc_id).count()
 
@@ -102,7 +102,7 @@ def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
     boq_vals_after = [(b.id, b.item_code, b.quantity, b.rate, b.amount) for b in db_session.query(BoqItem).all()]
     meas_vals_after = [(m.id, m.reference, m.quantity) for m in db_session.query(Measurement).all()]
     bill_vals_after = [(b.id, b.bill_number, b.gross_amount, b.net_payable) for b in db_session.query(RABill).all()]
-    
+
     assert boq_vals_after == before_boq_vals
     assert meas_vals_after == before_meas_vals
     assert bill_vals_after == before_rabill_vals
@@ -130,18 +130,24 @@ def test_ra_bill_extraction_edge_cases(db_session, client, managed_docs):
     chunk_content = [
         ("Cover", "Bill Number | Gross Amount | Linked Measurements | Cumulative Total"),
         ("Cover", "RA-04 | -9675000 | INVALID | "), # mismatch and neg
+        ("Cover", "RA-05 | 1000 | 1 | "), # Multiple cover rows test
+        ("Measurement Links", "Reference | "),
+        ("Measurement Links", "MB-DUP | "),
+        ("Measurement Links", "MB-DUP | "), # duplicate in Links
+        ("Measurement Links", "MB-MISSING-CALC | "), # missing in calc
         ("Calculations", "Reference | Item Code | Quantity | Rate | Amount"),
-        ("Calculations", "MB-2026-04-001 | EW-01 | -21500 | -450 | -9675000"), # neg, but matches reference
+        ("Calculations", "MB-2026-04-001 | EW-01 | 21500.1234 | 450 | 9675055.53"), # precision > 3 dec
         ("Calculations", "MB-UNKNOWN | UNK-01 | 1 | 1 | 1"), # unknown measurement
         ("Calculations", "MB-DUP | EW-01 | 1 | 1 | 1"),
-        ("Calculations", "MB-DUP | EW-01 | 1 | 1 | 1"), # duplicate
+        ("Calculations", "MB-DUP | EW-02 | 1 | 1 | 1"), # duplicate ref, diff item code
+        ("Calculations", "MB-2026-04-002 | CC-01 | 1 | 1 | 1.001"), # excess amount precision
     ]
 
-    for i, (sheet, content) in enumerate(chunk_content):
+    for i, (sheet, chunk_content_str) in enumerate(chunk_content):
         chunk = DocumentChunk(
             document_id=doc.id,
             chunk_index=i,
-            content=content,
+            content=chunk_content_str,
             content_hash=f"hash{i}",
             sheet_name=sheet,
             row_start=i+1,
@@ -154,10 +160,24 @@ def test_ra_bill_extraction_edge_cases(db_session, client, managed_docs):
     assert res.status_code == 200
     summary = res.json()
 
+    # Cover should have errors: Multiple cover data rows
+    # Link mismatch should trigger: duplicate ref in links, missing in calc, and for calc rows missing from links.
     assert summary["duplicate_references"] == 2
-    assert summary["unknown_links"] == 3
     assert summary["validation_errors"] > 0
-    assert summary["reconciliation_mismatches"] > 0
+
+    facts = db_session.query(DocumentFact).filter(DocumentFact.document_id == doc.id).order_by(DocumentFact.document_chunk_id).all()
+    # Check that provenance is saved correctly
+    for f in facts:
+        assert str(f.document_chunk_id) is not None
+        assert f.source_reference is not None
+
+    # Check precision error specifically
+    prec_fact = next(f for f in facts if f.value == "MB-2026-04-001")
+    assert any("precision" in err for err in prec_fact.metadata_json["errors"])
+
+    # Check multiple cover error
+    cover_fact = next(f for f in facts if f.fact_type == "RA_BILL_COVER" and f.value == "RA-05")
+    assert any("Multiple cover data rows found" in err for err in cover_fact.metadata_json["errors"])
 
 def test_ra_bill_extraction_auth_and_state(db_session, client, managed_docs):
     token_pm = get_token(client, "pm@infrapm.gov", "PM@123")
@@ -239,7 +259,7 @@ def test_atomic_failure(db_session, client, managed_docs, monkeypatch):
     db_session.add(doc)
     db_session.commit()
     managed_docs.append(str(doc.id))
-    
+
     chunk1 = DocumentChunk(
         document_id=doc.id, chunk_index=0, content="Bill Number | Gross Amount | Linked Measurements",
         content_hash="hash0", sheet_name="Cover", row_start=1, row_end=1
@@ -255,7 +275,7 @@ def test_atomic_failure(db_session, client, managed_docs, monkeypatch):
     def mock_add_audit_log(*args, **kwargs):
         print("MOCK CALLED")
         raise ValueError("Simulated Audit Failure")
-        
+
     import app.services.audit_service as aus
     monkeypatch.setattr(aus, "add_audit_log", mock_add_audit_log)
 

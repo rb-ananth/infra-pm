@@ -715,6 +715,8 @@ def extract_measurement_facts(db: Session, document_id: uuid.UUID, current_user:
 
 def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: User) -> dict:
     try:
+        from decimal import Decimal, ROUND_HALF_UP
+
         doc = db.query(Document).filter(Document.id == document_id).first()
         if not doc:
             raise DocumentNotFoundError("Document not found")
@@ -740,11 +742,11 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
             DocumentFact.document_id == document_id,
             DocumentFact.fact_type.in_(["RA_BILL_COVER", "RA_BILL_ITEM"])
         ).all()
-        
+
         unmatched_existing = {f.id: f for f in existing_facts}
 
         chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).order_by(DocumentChunk.chunk_index).all()
-        
+
         summary = {
             "rows_processed": 0,
             "valid_facts": 0,
@@ -755,11 +757,11 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
             "reconciliation_matches": 0,
             "reconciliation_mismatches": 0
         }
-        
+
         calc_chunks = []
         cover_chunks = []
         link_chunks = []
-        
+
         for chunk in chunks:
             if chunk.sheet_name == "Cover":
                 cover_chunks.append(chunk)
@@ -767,62 +769,82 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
                 calc_chunks.append(chunk)
             elif chunk.sheet_name == "Measurement Links":
                 link_chunks.append(chunk)
-                
+
         # Parse Measurement Links
-        linked_refs_from_sheet = set()
+        linked_refs_from_sheet = []
         link_headers = {}
         for chunk in link_chunks:
             parts = [p.strip() for p in chunk.content.split(" | ")]
             if not any(p for p in parts): continue
-            
+
             if not link_headers:
                 link_headers = {name.lower(): i for i, name in enumerate(parts) if name}
                 continue
-            
+
             ref = parts[link_headers.get("reference", 0)] if "reference" in link_headers and len(parts) > link_headers["reference"] else None
             if ref and "total" not in ref.lower():
-                linked_refs_from_sheet.add(ref)
+                linked_refs_from_sheet.append(ref)
+
+        link_sheet_ref_counts = {}
+        for r in linked_refs_from_sheet:
+            link_sheet_ref_counts[r] = link_sheet_ref_counts.get(r, 0) + 1
 
         cover_headers = {}
         canonical_bill = None
         has_changes = False
-        
+        cover_data_rows = 0
+        extracted_gross_amount = None
+
+        cover_fact_data = [] # To hold cover facts until cross-validation
+
         for chunk in cover_chunks:
             parts = [p.strip() for p in chunk.content.split(" | ")]
             if not any(p for p in parts): continue
-            
+
             if not cover_headers:
                 cover_headers = {name.lower(): i for i, name in enumerate(parts) if name}
                 continue
-                
+
             summary["rows_processed"] += 1
-            
+            cover_data_rows += 1
+
             bill_number = parts[cover_headers.get("bill number", 0)] if "bill number" in cover_headers and len(parts) > cover_headers["bill number"] else None
             gross_amount_str = parts[cover_headers.get("gross amount", 1)] if "gross amount" in cover_headers and len(parts) > cover_headers["gross amount"] else None
             linked_meas_str = parts[cover_headers.get("linked measurements", 2)] if "linked measurements" in cover_headers and len(parts) > cover_headers["linked measurements"] else None
-            
+
             validation_errors = []
+            if cover_data_rows > 1:
+                validation_errors.append("Multiple cover data rows found")
+                canonical_bill = None # invalidate context
+
             if not bill_number: validation_errors.append("Missing required field: Bill Number")
             if not gross_amount_str: validation_errors.append("Missing required field: Gross Amount")
             if not linked_meas_str: validation_errors.append("Missing required field: Linked Measurements")
-                
+
             gross_dec = None
             if gross_amount_str:
                 try:
                     gross_dec = Decimal(gross_amount_str)
+                    if gross_dec != gross_dec.quantize(Decimal('0.01')):
+                        validation_errors.append("Gross amount precision exceeds 2 decimal places")
                     if gross_dec < 0: validation_errors.append("Negative gross amount")
+                    if cover_data_rows == 1:
+                        extracted_gross_amount = gross_dec
                 except: validation_errors.append("Invalid gross amount format")
-                    
+
             linked_meas = None
             if linked_meas_str:
                 try:
                     linked_meas = int(linked_meas_str)
                 except: validation_errors.append("Invalid linked measurements format")
-            
+
             recon_status = None
             recon_details = []
-            
-            if not bill_number:
+
+            if cover_data_rows > 1:
+                recon_status = "MISMATCH"
+                recon_details.append("Ambiguous canonical bill context due to multiple cover rows")
+            elif not bill_number:
                 recon_status = "MISMATCH"
                 recon_details.append("No unambiguous canonical bill context (missing bill number)")
             else:
@@ -830,7 +852,7 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
                     RABill.contract_id == doc.contract_id,
                     RABill.bill_number == bill_number
                 ).first()
-                
+
                 if not canonical_bill:
                     recon_status = "MISMATCH"
                     recon_details.append("No canonical RA Bill found")
@@ -839,145 +861,113 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
                     if gross_dec is not None and canonical_bill.gross_amount != gross_dec:
                         recon_status = "MISMATCH"
                         recon_details.append(f"Gross amount mismatch: expected {canonical_bill.gross_amount}, got {gross_dec}")
-                    
+
                     if linked_meas is not None:
                         db_links = db.query(RABillMeasurement).join(RABillItem).filter(RABillItem.ra_bill_id == canonical_bill.id).count()
                         if db_links != linked_meas:
                             recon_status = "MISMATCH"
                             recon_details.append(f"Linked measurements mismatch: expected {db_links}, got {linked_meas}")
-                        
-            val_status = ValidationStatus.INVALID if validation_errors else ValidationStatus.VALID
-            val_bill = bill_number or "UNKNOWN"
-            
-            matched_id = None
-            for fid, ef in unmatched_existing.items():
-                if ef.fact_type == "RA_BILL_COVER" and ef.value == val_bill:
-                    matched_id = fid
-                    break
-            
-            metadata = {
-                "gross_amount": gross_amount_str,
-                "linked_measurements": linked_meas_str,
-                "errors": validation_errors,
-                "reconciliation_status": recon_status,
-                "reconciliation_errors": recon_details,
-                "sheet_name": "Cover",
-                "row_number": chunk.row_start
-            }
-            
-            if matched_id:
-                ef = unmatched_existing.pop(matched_id)
-                if ef.validation_status != val_status or ef.metadata_json != metadata:
-                    ef.validation_status = val_status
-                    ef.metadata_json = metadata
-                    has_changes = True
-            else:
-                fact = DocumentFact(
-                    document_id=document_id,
-                    document_chunk_id=chunk.id,
-                    fact_type="RA_BILL_COVER",
-                    field_name="bill_number",
-                    value=val_bill,
-                    validation_status=val_status,
-                    source_reference=f"{chunk.sheet_name}:{chunk.row_start}",
-                    metadata_json=metadata
-                )
-                db.add(fact)
-                has_changes = True
-                
-            summary["facts_extracted"] += 1
-            if val_status == ValidationStatus.VALID:
-                summary["valid_facts"] += 1
-            else:
-                summary["validation_errors"] += 1
-                
-            if recon_status == "MATCH":
-                summary["reconciliation_matches"] += 1
-            elif recon_status == "MISMATCH":
-                summary["reconciliation_mismatches"] += 1
+
+            cover_fact_data.append({
+                "chunk": chunk,
+                "bill_number": bill_number or "UNKNOWN",
+                "validation_errors": validation_errors,
+                "recon_status": recon_status,
+                "recon_details": recon_details,
+                "gross_amount_str": gross_amount_str,
+                "linked_meas_str": linked_meas_str
+            })
 
         calc_headers = {}
         ref_counts = {}
         calc_refs = set()
-        
+
         for chunk in calc_chunks:
             parts = [p.strip() for p in chunk.content.split(" | ")]
             if not any(p for p in parts): continue
             if not calc_headers:
                 calc_headers = {name.lower(): i for i, name in enumerate(parts) if name}
                 continue
-                
+
             ref = parts[calc_headers.get("reference", 0)] if "reference" in calc_headers and len(parts) > calc_headers["reference"] else None
             item_code = parts[calc_headers.get("item code", 1)] if "item code" in calc_headers and len(parts) > calc_headers["item code"] else None
-            
+
             if not ref or not item_code or "total" in ref.lower() or "total" in item_code.lower() or (len(parts) > calc_headers.get("rate", 3) and "total" in parts[calc_headers.get("rate", 3)].lower()):
                 continue
-                
+
             ref_counts[ref] = ref_counts.get(ref, 0) + 1
             calc_refs.add(ref)
-            
+
         calc_headers = {}
+        total_valid_line_amounts = Decimal("0.00")
+
         for chunk in calc_chunks:
             parts = [p.strip() for p in chunk.content.split(" | ")]
             if not any(p for p in parts): continue
-            
+
             if not calc_headers:
                 calc_headers = {name.lower(): i for i, name in enumerate(parts) if name}
                 continue
-                
+
             ref = parts[calc_headers.get("reference", 0)] if "reference" in calc_headers and len(parts) > calc_headers["reference"] else None
             item_code = parts[calc_headers.get("item code", 1)] if "item code" in calc_headers and len(parts) > calc_headers["item code"] else None
             qty_str = parts[calc_headers.get("quantity", 2)] if "quantity" in calc_headers and len(parts) > calc_headers["quantity"] else None
             rate_str = parts[calc_headers.get("rate", 3)] if "rate" in calc_headers and len(parts) > calc_headers["rate"] else None
             amount_str = parts[calc_headers.get("amount", 4)] if "amount" in calc_headers and len(parts) > calc_headers["amount"] else None
-            
+
             if not ref or not item_code or "total" in ref.lower() or "total" in item_code.lower() or (rate_str and "total" in rate_str.lower()):
                 continue
-                
+
             summary["rows_processed"] += 1
             val_errors = []
-            
+
             qty_dec = None
             rate_dec = None
             amount_dec = None
-            
+
             if ref_counts.get(ref, 0) > 1:
                 val_errors.append("Duplicate measurement reference")
                 summary["duplicate_references"] += 1
-                
-            if linked_refs_from_sheet and ref not in linked_refs_from_sheet:
-                val_errors.append("Measurement reference not found in Measurement Links sheet")
-                
+
+            if link_headers and ref not in set(linked_refs_from_sheet):
+                val_errors.append("Measurement reference present in Calculations but missing in Measurement Links")
+
             try:
                 qty_dec = Decimal(qty_str)
+                if qty_dec != qty_dec.quantize(Decimal('0.001')):
+                    val_errors.append("Quantity precision exceeds 3 decimal places")
                 if qty_dec < 0: val_errors.append("Negative quantity")
             except: val_errors.append("Invalid quantity format")
-            
+
             try:
                 rate_dec = Decimal(rate_str)
+                if rate_dec != rate_dec.quantize(Decimal('0.01')):
+                    val_errors.append("Rate precision exceeds 2 decimal places")
                 if rate_dec < 0: val_errors.append("Negative rate")
             except: val_errors.append("Invalid rate format")
-            
+
             try:
                 if amount_str:
                     amount_dec = Decimal(amount_str)
+                    if amount_dec != amount_dec.quantize(Decimal('0.01')):
+                        val_errors.append("Amount precision exceeds 2 decimal places")
                     if amount_dec < 0: val_errors.append("Negative amount")
             except: val_errors.append("Invalid amount format")
-            
+
             if qty_dec is not None and rate_dec is not None and amount_dec is not None:
-                calc_amt = round(qty_dec * rate_dec, 2)
+                calc_amt = (qty_dec * rate_dec).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 if calc_amt != amount_dec:
                     val_errors.append(f"Source amount {amount_dec} does not match qty * rate ({calc_amt})")
-            
+
             recon_status = None
             recon_details = []
-            
+
             if canonical_bill:
                 canonical_meas = db.query(Measurement).filter(
                     Measurement.reference == ref,
                     Measurement.boq_item.has(revision_id=approved_revision.id)
                 ).first()
-                
+
                 if not canonical_meas:
                     recon_status = "MISMATCH"
                     recon_details.append("Measurement reference not found in DB")
@@ -987,42 +977,45 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
                         RABillItem.ra_bill_id == canonical_bill.id,
                         RABillMeasurement.measurement_id == canonical_meas.id
                     ).first()
-                    
+
                     if not ra_meas:
                         recon_status = "MISMATCH"
                         recon_details.append("Measurement not linked to this RA Bill")
                     else:
                         ra_item = ra_meas.ra_bill_item
                         recon_status = "MATCH"
-                        
+
                         if ra_item.boq_item.item_code != item_code:
                             recon_status = "MISMATCH"
                             recon_details.append(f"BOQ Item code mismatch: expected {ra_item.boq_item.item_code}, got {item_code}")
-                            
+
                         if qty_dec is not None and canonical_meas.quantity != qty_dec:
                             recon_status = "MISMATCH"
                             recon_details.append(f"Quantity mismatch: expected {canonical_meas.quantity}, got {qty_dec}")
-                            
+
                         if rate_dec is not None and ra_item.rate != rate_dec:
                             recon_status = "MISMATCH"
                             recon_details.append(f"Rate mismatch: expected {ra_item.rate}, got {rate_dec}")
-                            
-                        expected_amt = round(canonical_meas.quantity * ra_item.rate, 2)
+
+                        expected_amt = (canonical_meas.quantity * ra_item.rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         if amount_dec is not None and amount_dec != expected_amt:
                             recon_status = "MISMATCH"
                             recon_details.append(f"Amount mismatch: expected {expected_amt}, got {amount_dec}")
             else:
                 recon_status = "MISMATCH"
                 recon_details.append("No canonical RA Bill context")
-                
+
             val_status = ValidationStatus.INVALID if val_errors else ValidationStatus.VALID
-            
+
+            if val_status == ValidationStatus.VALID and amount_dec is not None:
+                total_valid_line_amounts += amount_dec
+
             matched_id = None
             for fid, ef in unmatched_existing.items():
-                if ef.fact_type == "RA_BILL_ITEM" and ef.value == ref:
+                if ef.fact_type == "RA_BILL_ITEM" and ef.document_chunk_id == chunk.id:
                     matched_id = fid
                     break
-            
+
             metadata = {
                 "boq_item_code": item_code,
                 "quantity": qty_str,
@@ -1034,12 +1027,14 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
                 "sheet_name": "Calculations",
                 "row_number": chunk.row_start
             }
-            
+
             if matched_id:
                 ef = unmatched_existing.pop(matched_id)
-                if ef.validation_status != val_status or ef.metadata_json != metadata:
+                if ef.value != ref or ef.validation_status != val_status or ef.metadata_json != metadata or ef.source_reference != f"{chunk.sheet_name}:{chunk.row_start}":
+                    ef.value = ref
                     ef.validation_status = val_status
                     ef.metadata_json = metadata
+                    ef.source_reference = f"{chunk.sheet_name}:{chunk.row_start}"
                     has_changes = True
             else:
                 fact = DocumentFact(
@@ -1054,30 +1049,99 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
                 )
                 db.add(fact)
                 has_changes = True
-                
+
             summary["facts_extracted"] += 1
             if val_status == ValidationStatus.VALID:
                 summary["valid_facts"] += 1
             else:
                 summary["validation_errors"] += 1
-                
+
             if recon_status == "MATCH":
                 summary["reconciliation_matches"] += 1
             elif recon_status == "MISMATCH":
                 summary["reconciliation_mismatches"] += 1
-                
+
+        # Now process cover facts with cross-sheet validation
+        for cdata in cover_fact_data:
+            chunk = cdata["chunk"]
+            val_errors = list(cdata["validation_errors"])
+
+            if link_headers:
+                missing_in_calc = set(linked_refs_from_sheet) - calc_refs
+                if missing_in_calc:
+                    val_errors.append("References in Measurement Links missing from Calculations sheet")
+                for r, c in link_sheet_ref_counts.items():
+                    if c > 1:
+                        val_errors.append("Duplicate measurement reference in Measurement Links sheet")
+                        break
+
+            # If this is the main cover row, check total amounts
+            if cover_data_rows == 1 and extracted_gross_amount is not None:
+                if total_valid_line_amounts != extracted_gross_amount:
+                    val_errors.append(f"Sum of valid line amounts ({total_valid_line_amounts}) does not match cover gross amount ({extracted_gross_amount})")
+
+            val_status = ValidationStatus.INVALID if val_errors else ValidationStatus.VALID
+
+            metadata = {
+                "gross_amount": cdata["gross_amount_str"],
+                "linked_measurements": cdata["linked_meas_str"],
+                "errors": val_errors,
+                "reconciliation_status": cdata["recon_status"],
+                "reconciliation_errors": cdata["recon_details"],
+                "sheet_name": "Cover",
+                "row_number": chunk.row_start
+            }
+
+            matched_id = None
+            for fid, ef in unmatched_existing.items():
+                if ef.fact_type == "RA_BILL_COVER" and ef.document_chunk_id == chunk.id:
+                    matched_id = fid
+                    break
+
+            if matched_id:
+                ef = unmatched_existing.pop(matched_id)
+                if ef.value != cdata["bill_number"] or ef.validation_status != val_status or ef.metadata_json != metadata or ef.source_reference != f"{chunk.sheet_name}:{chunk.row_start}":
+                    ef.value = cdata["bill_number"]
+                    ef.validation_status = val_status
+                    ef.metadata_json = metadata
+                    ef.source_reference = f"{chunk.sheet_name}:{chunk.row_start}"
+                    has_changes = True
+            else:
+                fact = DocumentFact(
+                    document_id=document_id,
+                    document_chunk_id=chunk.id,
+                    fact_type="RA_BILL_COVER",
+                    field_name="bill_number",
+                    value=cdata["bill_number"],
+                    validation_status=val_status,
+                    source_reference=f"{chunk.sheet_name}:{chunk.row_start}",
+                    metadata_json=metadata
+                )
+                db.add(fact)
+                has_changes = True
+
+            summary["facts_extracted"] += 1
+            if val_status == ValidationStatus.VALID:
+                summary["valid_facts"] += 1
+            else:
+                summary["validation_errors"] += 1
+
+            if cdata["recon_status"] == "MATCH":
+                summary["reconciliation_matches"] += 1
+            elif cdata["recon_status"] == "MISMATCH":
+                summary["reconciliation_mismatches"] += 1
+
         for fid, ef in unmatched_existing.items():
             db.delete(ef)
             has_changes = True
-            
-        print('HAS CHANGES:', has_changes)
+
         if has_changes:
             from app.services.audit_service import add_audit_log
             add_audit_log(db, current_user.id, "Document", document_id, "RA_BILL_FACTS_EXTRACTED", summary)
             db.commit()
         else:
             db.rollback()
-            
+
         return summary
     except Exception:
         db.rollback()
