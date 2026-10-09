@@ -92,6 +92,9 @@ def setup_data(db_session):
     )
     db_session.add(project)
     db_session.flush()
+    from app.models.user import UserProjectAssignment
+    db_session.add(UserProjectAssignment(user_id=user.id, project_id=project.id, assigned_by_id=None))
+    db_session.flush()
 
     contractor = Contractor(
         registration_number=f"CON-{uid}",

@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.main import app
+from app.models.project import Project
 from app.models.document import Document, DocumentChunk
 from app.models.boq_item import BoqItem
 from app.models.measurement import Measurement
@@ -70,7 +71,7 @@ def test_document_lifecycle(db_session, client, managed_docs):
     response = client.post(
         "/api/v1/documents/",
         data={
-            "document_type": "CONTRACT",
+            "project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT",
             "document_name": "Contract Agreement",
         },
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
@@ -106,7 +107,7 @@ def test_duplicate_document_registration(db_session, client, managed_docs):
 
     response1 = client.post(
         "/api/v1/documents/",
-        data={"document_type": "CONTRACT", "document_name": "Doc 1"},
+        data={"project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT", "document_name": "Doc 1"},
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"}
     )
@@ -116,7 +117,7 @@ def test_duplicate_document_registration(db_session, client, managed_docs):
     # Duplicate registration should safely return existing
     response2 = client.post(
         "/api/v1/documents/",
-        data={"document_type": "CONTRACT", "document_name": "Doc 2"},
+        data={"project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT", "document_name": "Doc 2"},
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"}
     )
@@ -137,7 +138,7 @@ def test_golden_dataset_validation(db_session, client, managed_docs):
     with open(xlsx_path, "rb") as f:
         response = client.post(
             "/api/v1/documents/",
-            data={"document_type": "BOQ", "document_name": "Approved BOQ"},
+            data={"project_id": str(db_session.query(Project).first().id), "document_type": "BOQ", "document_name": "Approved BOQ"},
             files={"file": ("approved_boq.xlsx", f.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             headers={"Authorization": f"Bearer {token}"}
         )
@@ -180,7 +181,7 @@ def test_golden_dataset_validation(db_session, client, managed_docs):
     mb_path = os.path.join(SYNTHETIC_EVIDENCE_DIR, "measurement_book.xlsx")
     with open(mb_path, "rb") as f:
         mb_bytes = f.read()
-    response = client.post("/api/v1/documents/", data={"document_type": "MEASUREMENT_BOOK", "document_name": "MB"}, files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
+    response = client.post("/api/v1/documents/", data={"project_id": str(db_session.query(Project).first().id), "document_type": "MEASUREMENT_BOOK", "document_name": "MB"}, files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
     mb_id = response.json()["id"]
     managed_docs.append(mb_id)
     client.post(f"/api/v1/documents/{mb_id}/ingest", files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
@@ -243,7 +244,7 @@ def test_canonical_db_immutability(db_session, client, managed_docs):
 
     response = client.post(
         "/api/v1/documents/",
-        data={"document_type": "CONTRACT", "document_name": "Contract Agreement"},
+        data={"project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT", "document_name": "Contract Agreement"},
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"}
     )

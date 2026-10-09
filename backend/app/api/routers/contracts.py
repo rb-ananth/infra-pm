@@ -1,9 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import get_current_user, require_roles, get_allowed_project_ids, verify_project_access, ADMIN_BYPASS
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.user import User
@@ -21,12 +21,12 @@ router = APIRouter()
 def list_contracts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
-    return (
-        db.query(Contract)
-        .order_by(Contract.contract_number)
-        .all()
-    )
+    query = db.query(Contract)
+    if allowed_projects is not ADMIN_BYPASS:
+        query = query.filter(Contract.project_id.in_(allowed_projects))
+    return query.order_by(Contract.contract_number).all()
 
 
 @router.get("/{contract_id}", response_model=ContractResponse)
@@ -34,21 +34,13 @@ def get_contract(
     contract_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
-    contract = (
-        db.query(Contract)
-        .filter(Contract.id == contract_id)
-        .first()
-    )
-
+    contract = db.query(Contract).filter(Contract.id == contract_id).first()
     if not contract:
-        from fastapi import HTTPException
-
-        raise HTTPException(
-            status_code=404,
-            detail="Contract not found.",
-        )
-
+        raise HTTPException(status_code=404, detail="Contract not found.")
+        
+    verify_project_access(contract.project_id, allowed_projects)
     return contract
 
 
@@ -59,12 +51,10 @@ def create_contract(
     current_user: User = Depends(
         require_roles("Admin", "Project Manager")
     ),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
-    return contract_service.create_contract(
-        db,
-        data,
-        current_user,
-    )
+    verify_project_access(data.project_id, allowed_projects)
+    return contract_service.create_contract(db, data, current_user)
 
 
 @router.put("/{contract_id}", response_model=ContractResponse)
@@ -75,10 +65,15 @@ def update_contract(
     current_user: User = Depends(
         require_roles("Admin", "Project Manager")
     ),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
-    return contract_service.update_contract(
-        db,
-        contract_id,
-        data,
-        current_user,
-    )
+    contract = db.query(Contract).filter(Contract.id == contract_id).first()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found.")
+        
+    verify_project_access(contract.project_id, allowed_projects)
+    # If they are trying to move the contract to a new project (if even allowed), verify access to the new project too
+    if data.project_id and data.project_id != contract.project_id:
+        verify_project_access(data.project_id, allowed_projects)
+        
+    return contract_service.update_contract(db, contract_id, data, current_user)

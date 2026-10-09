@@ -2,6 +2,7 @@ import os
 import uuid
 import pytest
 from decimal import Decimal
+from app.models.project import Project
 from app.models.document import Document, DocumentFact, DocumentChunk, ValidationStatus
 from app.models.contract import Contract
 from app.models.audit_log import AuditLog
@@ -60,7 +61,7 @@ def test_document_intelligence_pipeline(db_session, client, managed_docs):
     non_contract_res = client.post(
         "/api/v1/documents/",
         data={
-            "document_type": "BOQ",
+            "project_id": str(db_session.query(Project).first().id), "document_type": "BOQ",
             "document_name": "Test Contract Intelligence - Bad Type",
             "project_id": str(contract.project_id)
         },
@@ -84,7 +85,7 @@ def test_document_intelligence_pipeline(db_session, client, managed_docs):
     response = client.post(
         "/api/v1/documents/",
         data={
-            "document_type": "CONTRACT",
+            "project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT",
             "document_name": "Test Contract Intelligence",
             "project_id": str(contract.project_id),
             "contract_id": str(contract.id)

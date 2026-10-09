@@ -8,9 +8,10 @@ from app.models.department import Department
 from app.models.measurement import Measurement
 from app.models.project import Project
 from app.models.role import Role
-from app.models.user import User
+from app.models.user import User, UserProjectAssignment
 from app.models.ra_bill import RABill, RABillItem, RABillMeasurement, RABillDeduction
 from app.models.evm import EVMBaseline, EVMBaselinePeriod
+from app.models.document import Document, DocumentChunk, DocumentFact
 
 __all__ = [
     "AuditLog",
@@ -24,11 +25,14 @@ __all__ = [
     "Project",
     "Role",
     "User",
+    "UserProjectAssignment",
     "RABill",
     "RABillItem",
     "RABillMeasurement",
     "RABillDeduction",
     "EVMBaseline",
     "EVMBaselinePeriod",
+    "Document",
+    "DocumentChunk",
+    "DocumentFact",
 ]
-from app.models.document import Document, DocumentChunk, DocumentFact

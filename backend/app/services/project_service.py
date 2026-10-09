@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.department import Department
 from app.models.project import Project
 from app.models.role import Role
-from app.models.user import User
+from app.models.user import User, UserProjectAssignment
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.audit_service import add_audit_log
 
@@ -27,12 +27,30 @@ def _validate_project_references(db: Session, project_data) -> None:
 
 
 def create_project(db: Session, data: ProjectCreate, current_user: User) -> Project:
+    """Create a project.
+
+    If the creating user is a Project Manager (not Admin), they are atomically
+    assigned to the new project within the same database transaction.  Admin users
+    receive global access via the ADMIN_BYPASS sentinel and do not need an
+    assignment record.
+    """
     _validate_project_references(db, data)
     project = Project(**data.model_dump())
     db.add(project)
     try:
-        db.flush()
+        db.flush()  # Obtain project.id before inserting the assignment
         add_audit_log(db, current_user.id, "Project", project.id, "CREATE", data.model_dump(mode="json"))
+
+        # Atomically assign the creating PM to the project in the same transaction
+        if current_user.role.name == "Project Manager":
+            assignment = UserProjectAssignment(
+                user_id=current_user.id,
+                project_id=project.id,
+                assigned_by_id=current_user.id,
+            )
+            db.add(assignment)
+            db.flush()
+
         db.commit()
         db.refresh(project)
         return project

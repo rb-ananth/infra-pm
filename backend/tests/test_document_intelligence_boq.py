@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from fastapi.testclient import TestClient
 
+from app.models.project import Project
 from app.models.document import Document, DocumentFact, DocumentChunk, ValidationStatus
 from app.models.boq_item import BoqItem
 from app.models.measurement import Measurement
@@ -65,7 +66,7 @@ def test_boq_extraction_golden_dataset(db_session, client, managed_docs):
 
     res_reg = client.post(
         "/api/v1/documents/",
-        data={"document_type": "BOQ", "document_name": "Test BOQ Extraction"},
+        data={"project_id": str(db_session.query(Project).first().id), "document_type": "BOQ", "document_name": "Test BOQ Extraction"},
         files={"file": ("approved_boq.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         headers={"Authorization": f"Bearer {token}"}
     )

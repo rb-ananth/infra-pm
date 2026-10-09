@@ -7,7 +7,7 @@ from app.models.contractor import Contractor
 from app.models.department import Department
 from app.models.project import Project
 from app.models.role import Role
-from app.models.user import User
+from app.models.user import User, UserProjectAssignment
 
 
 ROLES = ["Admin", "Project Manager", "Engineer", "Billing Engineer", "Viewer"]
@@ -99,6 +99,28 @@ def run_seed():
                     expected_completion=date(2028, 3, 31),
                 )
             )
+        
+        db.flush()
+
+        # --- User Project Assignments ---
+        admin_user = db.query(User).filter(User.email == "admin@infrapm.gov").first()
+        projects = db.query(Project).all()
+        operational_emails = ["pm@infrapm.gov", "eng@infrapm.gov", "billing@infrapm.gov", "viewer@infrapm.gov"]
+        
+        for email in operational_emails:
+            user = db.query(User).filter(User.email == email).first()
+            if user:
+                for proj in projects:
+                    exists = db.query(UserProjectAssignment).filter(
+                        UserProjectAssignment.user_id == user.id,
+                        UserProjectAssignment.project_id == proj.id
+                    ).first()
+                    if not exists:
+                        db.add(UserProjectAssignment(
+                            user_id=user.id,
+                            project_id=proj.id,
+                            assigned_by_id=admin_user.id if admin_user else None
+                        ))
 
         db.commit()
         print("Seed complete.")

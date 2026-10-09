@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+from app.models.project import Project
 from app.models.document import Document, DocumentChunk, DocumentFact, DocumentType, IngestionStatus, ValidationStatus
 from app.models.contract import Contract
 from app.models.boq_item import BoqItem
@@ -54,7 +55,7 @@ def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
 
     res_reg = client.post(
         "/api/v1/documents/",
-        data={"document_type": "RA_BILL", "document_name": "Test RA-04 Extraction", "contract_id": str(contract.id)},
+        data={"project_id": str(db_session.query(Project).first().id), "document_type": "RA_BILL", "document_name": "Test RA-04 Extraction", "contract_id": str(contract.id)},
         files={"file": ("RA-04.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         headers={"Authorization": f"Bearer {token}"}
     )

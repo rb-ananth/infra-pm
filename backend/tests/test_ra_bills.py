@@ -69,6 +69,9 @@ def setup_test_data(db):
 
     p = Project(id=p_id, code=f"P-{str(p_id)[:8]}", name="P", dept_id=d_id, pm_id=u_id, status="Active", total_estimated_cost=Decimal("100"), start_date=date.today(), expected_completion=date.today())
     db.add(p)
+    db.flush()
+    from app.models.user import UserProjectAssignment
+    db.add(UserProjectAssignment(user_id=u_id, project_id=p_id, assigned_by_id=None))
     
     c_id = uuid.uuid4()
     con_id = uuid.uuid4()

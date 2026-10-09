@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import get_current_user, require_roles, get_allowed_project_ids, verify_project_access, ADMIN_BYPASS, resolve_boq_project, resolve_boq_revision_project
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.boq import (
@@ -20,7 +20,14 @@ router = APIRouter()
 
 
 @router.get("/boqs/{boq_id}/revisions", response_model=list[BoqRevisionResponse])
-def list_revisions(boq_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def list_revisions(
+    boq_id: uuid.UUID, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user),
+    allowed_projects = Depends(get_allowed_project_ids)
+):
+    project_id = resolve_boq_project(db, boq_id)
+    verify_project_access(project_id, allowed_projects)
     return boq_service.list_revisions(db, boq_id)
 
 
@@ -30,12 +37,22 @@ def create_revision(
     data: BoqRevisionCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("Admin", "Project Manager")),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
+    project_id = resolve_boq_project(db, boq_id)
+    verify_project_access(project_id, allowed_projects)
     return boq_service.create_revision(db, boq_id, data, current_user)
 
 
 @router.get("/boq-revisions/{revision_id}", response_model=BoqRevisionDetailResponse)
-def get_revision(revision_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_revision(
+    revision_id: uuid.UUID, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user),
+    allowed_projects = Depends(get_allowed_project_ids)
+):
+    project_id = resolve_boq_revision_project(db, revision_id)
+    verify_project_access(project_id, allowed_projects)
     boq, revision, items, total = boq_service.revision_detail(db, revision_id)
     return BoqRevisionDetailResponse(boq=boq, revision=revision, items=items, total=total)
 
@@ -46,10 +63,20 @@ def update_revision(
     data: BoqRevisionUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("Admin", "Project Manager")),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
+    project_id = resolve_boq_revision_project(db, revision_id)
+    verify_project_access(project_id, allowed_projects)
     return boq_service.update_revision(db, revision_id, data, current_user)
 
 
 @router.get("/boq-revisions/{revision_id}/items", response_model=list[BoqItemResponse])
-def list_items(revision_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def list_items(
+    revision_id: uuid.UUID, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user),
+    allowed_projects = Depends(get_allowed_project_ids)
+):
+    project_id = resolve_boq_revision_project(db, revision_id)
+    verify_project_access(project_id, allowed_projects)
     return boq_service.list_items(db, revision_id)

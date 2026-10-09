@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import get_current_user, require_roles, get_allowed_project_ids, verify_project_access, resolve_boq_revision_project, resolve_boq_item_project
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.boq import BoqItemCreate, BoqItemResponse, BoqItemUpdate
@@ -20,7 +20,10 @@ async def preview_import(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("Admin", "Project Manager")),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
+    project_id = resolve_boq_revision_project(db, revision_id)
+    verify_project_access(project_id, allowed_projects)
     content = await boq_import_service.read_upload(file)
     return boq_import_service.preview_import(db, revision_id, file.filename, content)
 
@@ -31,7 +34,10 @@ async def import_items(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("Admin", "Project Manager")),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
+    project_id = resolve_boq_revision_project(db, revision_id)
+    verify_project_access(project_id, allowed_projects)
     content = await boq_import_service.read_upload(file)
     return boq_import_service.import_items(db, revision_id, file.filename, content, current_user)
 
@@ -42,12 +48,22 @@ def create_item(
     data: BoqItemCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("Admin", "Project Manager")),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
+    project_id = resolve_boq_revision_project(db, revision_id)
+    verify_project_access(project_id, allowed_projects)
     return boq_service.create_item(db, revision_id, data, current_user)
 
 
 @router.get("/boq-items/{item_id}", response_model=BoqItemResponse)
-def get_item(item_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_item(
+    item_id: uuid.UUID, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user),
+    allowed_projects = Depends(get_allowed_project_ids)
+):
+    project_id = resolve_boq_item_project(db, item_id)
+    verify_project_access(project_id, allowed_projects)
     return boq_service.get_item(db, item_id)
 
 
@@ -57,5 +73,8 @@ def update_item(
     data: BoqItemUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("Admin", "Project Manager")),
+    allowed_projects = Depends(get_allowed_project_ids)
 ):
+    project_id = resolve_boq_item_project(db, item_id)
+    verify_project_access(project_id, allowed_projects)
     return boq_service.update_item(db, item_id, data, current_user)
