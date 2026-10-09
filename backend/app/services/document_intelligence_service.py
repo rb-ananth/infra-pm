@@ -473,17 +473,21 @@ def extract_measurement_facts(db: Session, document_id: uuid.UUID, current_user:
         if doc.ingestion_status != IngestionStatus.COMPLETED:
             raise DocumentStateError(f"Extraction requires COMPLETED ingestion, got {doc.ingestion_status}")
 
-        valid_boq_codes = set()
-        if doc.contract_id:
-            boq_items = db.query(BoqItem.item_code).join(
-                BoqRevision, BoqItem.revision_id == BoqRevision.id
-            ).join(
-                Boq, BoqRevision.boq_id == Boq.id
-            ).filter(
-                Boq.contract_id == doc.contract_id,
-                BoqRevision.status == "Approved"
-            ).all()
-            valid_boq_codes = {row[0] for row in boq_items}
+        if not doc.contract_id:
+            raise ContractNotLinkedError("Measurement extraction requires a linked contract")
+
+        approved_revision = db.query(BoqRevision).join(
+            Boq, BoqRevision.boq_id == Boq.id
+        ).filter(
+            Boq.contract_id == doc.contract_id,
+            BoqRevision.status == "Approved"
+        ).first()
+
+        if not approved_revision:
+            raise DocumentStateError("Contract does not have an approved BOQ revision")
+
+        boq_items = db.query(BoqItem.item_code).filter(BoqItem.revision_id == approved_revision.id).all()
+        valid_boq_codes = {row[0] for row in boq_items}
 
         existing_facts = db.query(DocumentFact).filter(
             DocumentFact.document_id == document_id,

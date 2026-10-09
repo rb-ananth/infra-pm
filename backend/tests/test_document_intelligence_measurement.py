@@ -159,6 +159,7 @@ def test_measurement_extraction_edge_cases(db_session, client, managed_docs):
         "MB-VALID | 2026-01-01 | EW-01 | 100.000 | Loc | Rem",
         "MB-DUP | 2026-01-01 | EW-01 | 100.000 | Loc | Rem", # duplicate 1
         "MB-DUP | 2026-01-01 | EW-01 | 100.000 | Loc | Rem", # duplicate 2
+        "MB-DUP | 2026-01-01 | EW-01 | 100.000 | Loc | Rem", # duplicate 3
         "MB-UNKNOWN | 2026-01-01 | UNKNOWN-99 | 100.000 | Loc | Rem", # unknown BOQ
         "MB-PREC | 2026-01-01 | EW-01 | 100.0001 | Loc | Rem", # excess prec
         "MB-NEG | 2026-01-01 | EW-01 | -100.000 | Loc | Rem", # negative
@@ -183,10 +184,10 @@ def test_measurement_extraction_edge_cases(db_session, client, managed_docs):
     assert res.status_code == 200
     summary = res.json()
 
-    assert summary["rows_processed"] == 8
+    assert summary["rows_processed"] == 9
     assert summary["valid_measurements"] == 1 # only MB-VALID
-    assert summary["validation_errors"] == 7
-    assert summary["duplicate_references"] == 2 # MB-DUP (both rows get flagged)
+    assert summary["validation_errors"] == 8
+    assert summary["duplicate_references"] == 3 # MB-DUP (all 3 rows get flagged)
     assert summary["unknown_boq_links"] == 1 # MB-UNKNOWN
 
     facts = db_session.query(DocumentFact).filter_by(document_id=doc.id).all()
@@ -214,7 +215,7 @@ def test_measurement_extraction_auth_and_state(db_session, client, managed_docs)
     doc = Document(
         document_type="BOQ", # Incompatible
         document_name="Test Incompatible",
-        sha256_hash="fake",
+        sha256_hash="fake-mb-auth",
         ingestion_status="COMPLETED",
         source_filename="fake.pdf",
         file_extension="pdf",
@@ -241,6 +242,37 @@ def test_measurement_extraction_auth_and_state(db_session, client, managed_docs)
     res3 = client.post(f"/api/v1/documents/{doc.id}/intelligence/measurement/extract", headers={"Authorization": f"Bearer {token_pm}"})
     assert res3.status_code == 400
 
+    # 11. Missing contract context
+    doc.ingestion_status = 'COMPLETED'
+    doc.contract_id = None
+    db_session.commit()
+    res4 = client.post(f"/api/v1/documents/{doc.id}/intelligence/measurement/extract", headers={"Authorization": f"Bearer {token_pm}"})
+    assert res4.status_code == 400
+    assert "linked contract" in res4.json()["detail"]
+
+    # 12. Missing approved BOQ
+    from app.models.contract import Contract
+    from app.models.boq import Boq
+    from app.models.boq_revision import BoqRevision
+
+    contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
+    doc.contract_id = contract.id
+    db_session.commit()
+
+    # Temporarily set BOQ revision to Draft
+    boq = db_session.query(Boq).filter(Boq.contract_id == contract.id).first()
+    revision = db_session.query(BoqRevision).filter(BoqRevision.boq_id == boq.id).first()
+    original_status = revision.status
+    revision.status = "Draft"
+    db_session.commit()
+
+    res5 = client.post(f"/api/v1/documents/{doc.id}/intelligence/measurement/extract", headers={"Authorization": f"Bearer {token_pm}"})
+    assert res5.status_code == 400
+    assert "does not have an approved BOQ" in res5.json()["detail"]
+
+    # Revert
+    revision.status = original_status
+    db_session.commit()
 def test_transaction_rollback_on_failure(db_session, client, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()

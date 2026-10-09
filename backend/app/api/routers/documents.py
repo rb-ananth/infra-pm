@@ -142,3 +142,5 @@ def extract_measurement_facts_endpoint(
         raise HTTPException(status_code=404, detail=str(e))
     except DocumentStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except ContractNotLinkedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
