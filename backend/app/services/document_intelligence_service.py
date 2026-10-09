@@ -9,6 +9,8 @@ from app.models.boq import Boq
 from app.models.boq_revision import BoqRevision
 from app.models.boq_item import BoqItem
 from app.models.document import DocumentChunk, DocumentFact, ValidationStatus, DocumentType, IngestionStatus
+from app.models.ra_bill import RABill, RABillItem, RABillMeasurement
+from app.models.measurement import Measurement
 from app.models.contract import Contract
 from app.models.user import User
 from app.services.audit_service import add_audit_log
@@ -708,3 +710,288 @@ def extract_measurement_facts(db: Session, document_id: uuid.UUID, current_user:
     except Exception as e:
         db.rollback()
         raise e
+
+
+def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: User) -> dict:
+    try:
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            raise DocumentNotFoundError("Document not found")
+        if doc.document_type != DocumentType.RA_BILL:
+            raise DocumentStateError(f"Extraction requires RA_BILL document, got {doc.document_type}")
+        if doc.ingestion_status != IngestionStatus.COMPLETED:
+            raise DocumentStateError(f"Extraction requires COMPLETED ingestion, got {doc.ingestion_status}")
+
+        if not doc.contract_id:
+            raise ContractNotLinkedError("RA Bill extraction requires a linked contract")
+
+        approved_revision = db.query(BoqRevision).join(
+            Boq, BoqRevision.boq_id == Boq.id
+        ).filter(
+            Boq.contract_id == doc.contract_id,
+            BoqRevision.status == "Approved"
+        ).first()
+
+        if not approved_revision:
+            raise DocumentStateError("Contract does not have an approved BOQ revision")
+
+        existing_facts = db.query(DocumentFact).filter(
+            DocumentFact.document_id == document_id,
+            DocumentFact.fact_type.in_(["RA_BILL_COVER", "RA_BILL_ITEM"])
+        ).all()
+        for ef in existing_facts:
+            db.delete(ef)
+        db.flush()
+
+        chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).order_by(DocumentChunk.chunk_index).all()
+
+        summary = {
+            "rows_processed": 0,
+            "valid_facts": 0,
+            "facts_extracted": 0,
+            "validation_errors": 0,
+            "duplicate_references": 0,
+            "unknown_links": 0,
+            "reconciliation_matches": 0,
+            "reconciliation_mismatches": 0
+        }
+
+        calc_chunks = []
+        cover_chunks = []
+
+        for chunk in chunks:
+            if chunk.sheet_name == "Cover":
+                cover_chunks.append(chunk)
+            elif chunk.sheet_name == "Calculations":
+                calc_chunks.append(chunk)
+
+        cover_headers = {}
+        canonical_bill = None
+        for chunk in cover_chunks:
+            parts = [p.strip() for p in chunk.content.split(" | ")]
+            if not any(p for p in parts): continue
+
+            if not cover_headers:
+                cover_headers = {name.lower(): i for i, name in enumerate(parts) if name}
+                continue
+
+            summary["rows_processed"] += 1
+
+            bill_number = parts[cover_headers.get("bill number", 0)] if "bill number" in cover_headers and len(parts) > cover_headers["bill number"] else None
+            gross_amount_str = parts[cover_headers.get("gross amount", 1)] if "gross amount" in cover_headers and len(parts) > cover_headers["gross amount"] else None
+            linked_meas_str = parts[cover_headers.get("linked measurements", 2)] if "linked measurements" in cover_headers and len(parts) > cover_headers["linked measurements"] else None
+
+            if not bill_number:
+                summary["validation_errors"] += 1
+                continue
+
+            gross_dec = None
+            validation_errors = []
+            if gross_amount_str:
+                try:
+                    gross_dec = Decimal(gross_amount_str)
+                    if gross_dec < 0: validation_errors.append("Negative gross amount")
+                except: validation_errors.append("Invalid gross amount format")
+
+            linked_meas = None
+            if linked_meas_str:
+                try:
+                    linked_meas = int(linked_meas_str)
+                except: validation_errors.append("Invalid linked measurements format")
+
+            recon_status = None
+            recon_details = []
+            canonical_bill = db.query(RABill).filter(
+                RABill.contract_id == doc.contract_id,
+                RABill.bill_number == bill_number
+            ).first()
+
+            if not canonical_bill:
+                recon_status = "MISMATCH"
+                recon_details.append("No canonical RA Bill found")
+            else:
+                recon_status = "MATCH"
+                if gross_dec is not None and canonical_bill.gross_amount != gross_dec:
+                    recon_status = "MISMATCH"
+                    recon_details.append(f"Gross amount mismatch: expected {canonical_bill.gross_amount}, got {gross_dec}")
+
+                if linked_meas is not None:
+                    db_links = db.query(RABillMeasurement).join(RABillItem).filter(RABillItem.ra_bill_id == canonical_bill.id).count()
+                    if db_links != linked_meas:
+                        recon_status = "MISMATCH"
+                        recon_details.append(f"Linked measurements mismatch: expected {db_links}, got {linked_meas}")
+
+            val_status = ValidationStatus.INVALID if validation_errors else ValidationStatus.VALID
+            fact = DocumentFact(
+                document_id=document_id,
+                document_chunk_id=chunk.id,
+                fact_type="RA_BILL_COVER",
+                field_name="bill_number",
+                source_reference=f"{chunk.sheet_name}:{chunk.row_start}",
+                value=bill_number,
+                validation_status=val_status,
+                metadata_json={
+                    "gross_amount": gross_amount_str,
+                    "linked_measurements": linked_meas_str,
+                    "errors": validation_errors,
+                    "reconciliation_status": recon_status,
+                    "reconciliation_errors": recon_details,
+                    "sheet_name": "Cover",
+                    "row_number": chunk.row_start
+                }
+            )
+            db.add(fact)
+            summary["facts_extracted"] += 1
+            if val_status == ValidationStatus.VALID:
+                summary["valid_facts"] += 1
+            else:
+                summary["validation_errors"] += 1
+
+            if recon_status == "MATCH":
+                summary["reconciliation_matches"] += 1
+            elif recon_status == "MISMATCH":
+                summary["reconciliation_mismatches"] += 1
+
+        calc_headers = {}
+        ref_counts = {}
+
+        for chunk in calc_chunks:
+            parts = [p.strip() for p in chunk.content.split(" | ")]
+            if not any(p for p in parts): continue
+            if not calc_headers:
+                calc_headers = {name.lower(): i for i, name in enumerate(parts) if name}
+                continue
+
+            ref = parts[calc_headers.get("reference", 0)] if "reference" in calc_headers and len(parts) > calc_headers["reference"] else None
+            item_code = parts[calc_headers.get("item code", 1)] if "item code" in calc_headers and len(parts) > calc_headers["item code"] else None
+
+            if not ref or not item_code or "total" in ref.lower() or "total" in item_code.lower() or (len(parts) > calc_headers.get("rate", 3) and "total" in parts[calc_headers.get("rate", 3)].lower()):
+                continue
+
+            ref_counts[ref] = ref_counts.get(ref, 0) + 1
+
+        calc_headers = {}
+        for chunk in calc_chunks:
+            parts = [p.strip() for p in chunk.content.split(" | ")]
+            if not any(p for p in parts): continue
+
+            if not calc_headers:
+                calc_headers = {name.lower(): i for i, name in enumerate(parts) if name}
+                continue
+
+            ref = parts[calc_headers.get("reference", 0)] if "reference" in calc_headers and len(parts) > calc_headers["reference"] else None
+            item_code = parts[calc_headers.get("item code", 1)] if "item code" in calc_headers and len(parts) > calc_headers["item code"] else None
+            qty_str = parts[calc_headers.get("quantity", 2)] if "quantity" in calc_headers and len(parts) > calc_headers["quantity"] else None
+            rate_str = parts[calc_headers.get("rate", 3)] if "rate" in calc_headers and len(parts) > calc_headers["rate"] else None
+            amount_str = parts[calc_headers.get("amount", 4)] if "amount" in calc_headers and len(parts) > calc_headers["amount"] else None
+
+            if not ref or not item_code or "total" in ref.lower() or "total" in item_code.lower() or (rate_str and "total" in rate_str.lower()):
+                continue
+
+            summary["rows_processed"] += 1
+            val_errors = []
+
+            qty_dec = None
+            rate_dec = None
+            amount_dec = None
+
+            if ref_counts.get(ref, 0) > 1:
+                val_errors.append("Duplicate measurement reference")
+                summary["duplicate_references"] += 1
+
+            try:
+                qty_dec = Decimal(qty_str)
+                if qty_dec < 0: val_errors.append("Negative quantity")
+            except: val_errors.append("Invalid quantity format")
+
+            try:
+                rate_dec = Decimal(rate_str)
+                if rate_dec < 0: val_errors.append("Negative rate")
+            except: val_errors.append("Invalid rate format")
+
+            try:
+                amount_dec = Decimal(amount_str)
+                if amount_dec < 0: val_errors.append("Negative amount")
+            except: val_errors.append("Invalid amount format")
+
+            recon_status = None
+            recon_details = []
+
+            if canonical_bill:
+                canonical_meas = db.query(Measurement).filter(
+                    Measurement.reference == ref,
+                    Measurement.boq_item.has(revision_id=approved_revision.id)
+                ).first()
+
+                if not canonical_meas:
+                    recon_status = "MISMATCH"
+                    recon_details.append("Measurement reference not found in DB")
+                    summary["unknown_links"] += 1
+                else:
+                    ra_meas = db.query(RABillMeasurement).join(RABillItem).filter(
+                        RABillItem.ra_bill_id == canonical_bill.id,
+                        RABillMeasurement.measurement_id == canonical_meas.id
+                    ).first()
+
+                    if not ra_meas:
+                        recon_status = "MISMATCH"
+                        recon_details.append("Measurement not linked to this RA Bill")
+                    else:
+                        ra_item = ra_meas.ra_bill_item
+                        recon_status = "MATCH"
+
+                        if ra_item.boq_item.item_code != item_code:
+                            recon_status = "MISMATCH"
+                            recon_details.append(f"BOQ Item code mismatch: expected {ra_item.boq_item.item_code}, got {item_code}")
+
+                        if qty_dec is not None and canonical_meas.quantity != qty_dec:
+                            recon_status = "MISMATCH"
+                            recon_details.append(f"Quantity mismatch: expected {canonical_meas.quantity}, got {qty_dec}")
+
+                        if rate_dec is not None and ra_item.rate != rate_dec:
+                            recon_status = "MISMATCH"
+                            recon_details.append(f"Rate mismatch: expected {ra_item.rate}, got {rate_dec}")
+
+            else:
+                recon_status = "MISMATCH"
+                recon_details.append("No canonical RA Bill context")
+
+            val_status = ValidationStatus.INVALID if val_errors else ValidationStatus.VALID
+            fact = DocumentFact(
+                document_id=document_id,
+                document_chunk_id=chunk.id,
+                fact_type="RA_BILL_ITEM",
+                field_name="measurement_reference",
+                source_reference=f"{chunk.sheet_name}:{chunk.row_start}",
+                value=ref,
+                validation_status=val_status,
+                metadata_json={
+                    "boq_item_code": item_code,
+                    "quantity": qty_str,
+                    "rate": rate_str,
+                    "amount": amount_str,
+                    "errors": val_errors,
+                    "reconciliation_status": recon_status,
+                    "reconciliation_errors": recon_details,
+                    "sheet_name": "Calculations",
+                    "row_number": chunk.row_start
+                }
+            )
+            db.add(fact)
+            summary["facts_extracted"] += 1
+            if val_status == ValidationStatus.VALID:
+                summary["valid_facts"] += 1
+            else:
+                summary["validation_errors"] += 1
+
+            if recon_status == "MATCH":
+                summary["reconciliation_matches"] += 1
+            elif recon_status == "MISMATCH":
+                summary["reconciliation_mismatches"] += 1
+
+        db.commit()
+        add_audit_log(db, "Document", document_id, "RA_BILL_FACTS_EXTRACTED", current_user.id, summary)
+        return summary
+    except Exception:
+        db.rollback()
+        raise

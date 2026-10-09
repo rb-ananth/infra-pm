@@ -91,3 +91,13 @@ class MeasurementExtractionSummaryResponse(BaseModel):
     validation_errors: int
     duplicate_references: int
     unknown_boq_links: int
+
+class RABillExtractionSummaryResponse(BaseModel):
+    rows_processed: int
+    valid_facts: int
+    facts_extracted: int
+    validation_errors: int
+    duplicate_references: int
+    unknown_links: int
+    reconciliation_matches: int
+    reconciliation_mismatches: int
