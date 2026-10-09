@@ -1,47 +1,47 @@
 # InfraPM Intelligence
 
-Sprint 1 foundation for an infrastructure project controls and contract-management platform.
+A production-ready infrastructure project controls and contract-management platform foundation.
 
-## Sprint 1 scope
+**Purpose**: To provide a traceable, auditable, and immutable source of truth for construction projects, contract administration, billing, and Earned Value Management (EVM), serving as a clean deterministic foundation for future AI and RAG capabilities.
 
-- JWT authentication
-- Role-based access control
-- Departments
-- Contractors
-- Project Registry
-- Append-only audit logging
-- PostgreSQL + SQLAlchemy
-- Alembic migrations
-- React/Vite frontend shell
-- Pytest API tests
+**Target Users**: Project Managers, Billing Engineers, Site Engineers, and Administrators in large-scale infrastructure and construction sectors.
 
-Not included yet: Contracts, BOQ, Measurements, RA Billing, EVM, ML, RAG.
+## Current Technology Stack
+- **Backend**: Python 3.11+, FastAPI, SQLAlchemy, PostgreSQL, Alembic (Migrations), Pytest.
+- **Frontend**: React, TypeScript, Vite.
+- **Security**: JWT Authentication, Role-Based Access Control (RBAC).
 
-## Architecture
+## Implemented Modules (V1 Complete)
+- **Auth & RBAC**: JWT login, global roles (Admin, Project Manager, Engineer, Billing Engineer, Viewer).
+- **Core Registries**: Projects, Departments, Contractors.
+- **Contracts & BOQ**: Contract definitions, Bill of Quantities (BOQ), and revision tracking.
+- **Measurements**: Physical execution tracking via Measurement Books.
+- **RA Billing**: Cumulative and snapshot billing, automated derivation from measurements.
+- **EVM**: Automated Planned Value (PV), Earned Value (EV), and Actual Cost (AC) period metrics.
+- **Document Ingestion**: Storage and parsing of PDFs and XLSX files.
+- **Document Intelligence V1**: Deterministic extraction, structural validation, and canonical reconciliation of Contracts, BOQs, Measurement Books, RA Bills, and EVM reports.
+- **Audit**: Immutable, append-only logs attached directly to business transactions.
 
-React/Vite frontend -> FastAPI REST API -> service layer -> SQLAlchemy -> PostgreSQL
+## High-Level Architecture & Data Flow
+`React/Vite Frontend` -> `FastAPI REST API` -> `Service Layer` -> `SQLAlchemy ORM` -> `PostgreSQL`
 
-The service layer owns transaction boundaries. Audit records are added to the same transaction as the business change.
+**Transaction Safety**: The service layer explicitly manages transaction boundaries. Business logic, document fact persistence, and audit logging all execute within the same ACID transaction. If an error occurs, the entire operation is rolled back, preventing orphaned or corrupt records.
 
-## Prerequisites
+## Local Setup & Run
 
-- macOS Apple Silicon
+### Prerequisites
+- macOS Apple Silicon / Linux / Windows WSL
 - Python 3.11+
 - Node.js 18+
 - Docker Desktop or OrbStack
 
-## Setup
-
-### 1. Start PostgreSQL
-
+### 1. Database (PostgreSQL)
 ```bash
-cd infra-pm
 docker compose up -d
 docker compose ps
 ```
 
-### 2. Backend
-
+### 2. Backend API
 ```bash
 cd backend
 python3 -m venv .venv
@@ -52,60 +52,43 @@ alembic upgrade head
 python scripts/seed.py
 uvicorn app.main:app --reload --port 8000
 ```
-
-API docs:
-http://localhost:8000/docs
+**API Docs available at**: `http://localhost:8000/docs`
 
 ### 3. Frontend
-
-Open another terminal:
-
 ```bash
-cd infra-pm/frontend
+cd frontend
 npm install
 npm run dev
 ```
+**App available at**: `http://localhost:5173`
 
-Frontend:
-http://localhost:5173
-
-## Development login
-
-These credentials are synthetic and for local development only:
-
+## Development Login
+These credentials are for local development only:
 - admin@infrapm.gov / Admin@123
 - pm@infrapm.gov / PM@123
 - eng@infrapm.gov / Eng@123
 - billing@infrapm.gov / Bill@123
 - viewer@infrapm.gov / View@123
 
-Do not use these credentials outside local development.
-
-## Tests
-
-With PostgreSQL running:
-
+## Test Suite Results
+*Executed on: 2026-10-09*
 ```bash
 cd backend
 source .venv/bin/activate
-pytest -v
+pytest tests/ -v
 ```
+**Results**: 133 tests passed, 0 failures.
 
-## Useful commands
+## Current Limitations & Planned Features
+### Completed Functionality (V1)
+- Deterministic extraction and canonical reconciliation.
+- Complete core project controls, billing, and EVM mechanics.
 
-```bash
-docker compose up -d
-docker compose ps
-docker compose logs db
-docker compose down
-alembic upgrade head
-alembic current
-pytest -v
-```
+### Known Limitations
+- Global RBAC (no row-level / project-level security).
+- Extraction is strictly pattern-based (Regex/Pandas) and runs synchronously.
+- Synthetic evidence only supports predefined deterministic templates.
 
-## Sprint roadmap
-
-V1: Core data, execution tracking, billing and EVM
-V2: Contract administration and documents
-V3: Predictive intelligence
-V4: Generative intelligence / RAG
+### Planned Features
+- **Predictive AI**: Cost and schedule overrun forecasting.
+- **Generative AI & RAG**: Semantic querying over vector-embedded `DocumentChunk` data.

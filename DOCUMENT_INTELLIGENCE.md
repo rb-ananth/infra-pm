@@ -2,6 +2,28 @@
 
 InfraPM Intelligence includes a robust Document Intelligence V1 feature focused on deterministic extraction and reconciliation of structured business facts from PDF and XLSX evidence.
 
+## Architecture & Data Flow
+
+```mermaid
+graph TD
+    A[Client Upload] --> B[Document Registration]
+    B --> C[File Parsing PyPDF/Pandas]
+    C --> D[DocumentChunk Persistence]
+    D --> E[Deterministic Fact Extraction]
+    E --> F{Structural Validation}
+    F -- Invalid Format --> G[Validation Error Logged]
+    F -- Valid Format --> H[Canonical Reconciliation]
+    H --> I{Compare vs DB}
+    I -- Matches --> J[Status: MATCH]
+    I -- Diverges --> K[Status: MISMATCH]
+    I -- Missing Ref --> L[Status: NOT_COMPARABLE]
+    G --> M
+    J --> M
+    K --> M
+    L --> M
+    M[DocumentFact Persistence & Audit Logging]
+```
+
 ## Capabilities
 
 The current V1 implementation provides deterministic extraction for:
@@ -11,32 +33,32 @@ The current V1 implementation provides deterministic extraction for:
 - **RA Bills** (XLSX)
 - **Earned Value Management (EVM)** Progress Reports (PDF)
 
-## EVM Evidence Extraction
+## Source Validation vs. Canonical Reconciliation
 
-The system processes monthly progress-report PDFs to extract EVM checkpoints:
-- **PV (Planned Value)**
-- **EV (Earned Value)**
-- **AC (Actual Cost)**
-- **Checkpoint Date**
+The extraction service strictly separates data validation from canonical reconciliation. A successful extraction result is *not* described as "correct" merely because it parses successfully.
 
-### Source Validation vs. Canonical Reconciliation
-The extraction service strictly separates data validation from canonical reconciliation:
-1. **Validation**: The parser verifies structural integrity (e.g., proper decimals, absence of excessive precision, handling of duplicate observations within the same document). Invalid or ambiguous metrics (such as negative costs or overlapping EV fields) are flagged with `VALIDATION_ERRORS`, meaning the facts are successfully parsed but deemed structurally `INVALID`.
-2. **Reconciliation**: Structurally valid facts are cross-referenced dynamically against the canonical `EVMService`. 
+1. **Validation**: The parser verifies structural integrity (e.g., proper decimals, absence of excessive precision, handling of duplicate observations). Invalid or ambiguous metrics (such as negative costs or overlapping fields) are flagged with `VALIDATION_ERRORS`, meaning the facts are structurally `INVALID`. Syntactic validity does not guarantee business accuracy.
+2. **Reconciliation**: Structurally valid facts are dynamically cross-referenced against authoritative canonical data. 
    - `MATCH`: Source evidence matches canonical calculations exactly.
-   - `MISMATCH`: Source evidence disagrees with canonical calculations (e.g., a PDF mistakenly reports AC equal to EV on months without RA Bills, while the canonical logic accurately retains the previous baseline).
-   - `NOT_COMPARABLE`: Missing critical context (e.g., missing checkpoint date) preventing any comparison.
+   - `MISMATCH`: Source evidence diverges from canonical calculations.
+   - `NOT_COMPARABLE`: Missing critical context preventing comparison.
 
-### Canonical Calculation Rules
-The canonical EVM baseline operates mathematically independently from the uploaded PDFs:
-- **PV**: Derived from the approved EVM baseline schedule.
-- **EV**: Derived from approved physical measurements valued at canonical BOQ rates.
-- **AC**: Calculated as the cumulative value of approved RA Bills with a `bill_date` on or before the checkpoint date.
+### Canonical EVM Calculation Rules
+The canonical EVM baseline operates mathematically independently from uploaded PDFs:
+- **PV (Planned Value)**: Derived from the approved EVM baseline schedule.
+- **EV (Earned Value)**: Derived from approved physical measurements valued at canonical BOQ rates.
+- **AC (Actual Cost)**: Calculated as the cumulative value of approved RA Bills with a `bill_date` on or before the checkpoint date.
 
-**Important Note**: Discrepancies between the PDF and canonical data (such as those intentionally planted in the July/August synthetic evidence) are *never* silently corrected or forcefully synchronized. The discrepancies are accurately captured as `MISMATCH` events in the `DocumentFact` metadata.
+**Important Note**: Discrepancies between the PDF and canonical data (such as synthetic mismatch tests) are *never* silently corrected. They are recorded accurately as `MISMATCH` events.
 
-### Integrity & Idempotency
-- **Provenance**: Extracted facts are tied immutably to the underlying `DocumentChunk` and `Document` via foreign keys.
-- **Idempotency**: Running extraction multiple times over the exact same document is completely safe. The UUIDs of the facts are preserved, and identical duplicate processing is safely bypassed without triggering overlapping `AuditLog` events.
-- **Transactional Rollback**: A failure during extraction (e.g., an error generating the audit log) instantly triggers an atomic rollback, guaranteeing that no partial or malformed `DocumentFact` structures are persisted.
-- **Limitations**: The V1 extraction is currently strictly deterministic (Regex/Pandas). No LLMs, RAG, or semantic vector searches are applied, restricting processing strictly to defined text patterns.
+## Integrity & Resilience
+
+- **Provenance**: Extracted facts are tied immutably to the underlying `DocumentChunk` (page/row) and `Document` via foreign keys, tracing every number back to its exact location in the source file.
+- **Idempotency**: Re-running extraction over the same document safely bypasses duplicates. The UUIDs of the facts are preserved without creating redundant facts or `AuditLog` records.
+- **Transactional Rollback**: The entire intelligence extraction operates inside a single database transaction. A failure instantly triggers a rollback, guaranteeing no partial or malformed `DocumentFact` saves.
+
+## What is NOT Yet Supported
+- Non-deterministic or unstructured document extraction (e.g., LLMs/RAG).
+- Scanned PDF OCR.
+- Row-level or Project-level Data Access Isolation (current RBAC roles are system-global).
+- Automatic database updates based on extracted metrics (intelligence evaluates evidence; it does not mutate canonical project records).
