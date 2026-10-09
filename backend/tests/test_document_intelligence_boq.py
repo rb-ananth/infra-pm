@@ -182,18 +182,21 @@ def test_boq_extraction_edge_cases(db_session, client, managed_docs):
     summary = res.json()
 
     assert summary["rows_processed"] == 11 # 12 rows minus 1 header
-    assert summary["valid_items"] == 4 # VALID-01 and DISCREP-01 are the only structurally valid items
-    assert summary["validation_errors"] == 7 # the rest are invalid
+    assert summary["valid_items"] == 2 # VALID-01 and DISCREP-01 are the only structurally valid items
+    assert summary["validation_errors"] == 9 # the rest are invalid
     assert summary["source_discrepancies"] == 1 # DISCREP-01
     assert summary["facts_extracted"] == 11 * 7 # 77 facts
 
     facts = db_session.query(DocumentFact).filter_by(document_id=doc.id).all()
 
-    # Check Discrepancy
+    # Check Discrepancy (Only source_amount should be CONFLICT)
     discrep_facts = [f for f in facts if f.metadata_json.get("boq_item_code") == "DISCREP-01"]
     for f in discrep_facts:
-        assert f.validation_status == ValidationStatus.CONFLICT
-        assert f.metadata_json["discrepancy"]["difference"] == "100.00"
+        if f.field_name == "source_amount":
+            assert f.validation_status == ValidationStatus.CONFLICT
+            assert f.metadata_json["discrepancy"]["difference"] == "100.00"
+        else:
+            assert f.validation_status == ValidationStatus.VALID
 
     # Check Precision rejection
     prec_facts = [f for f in facts if f.metadata_json.get("boq_item_code") == "PRECISION-01"]
@@ -207,9 +210,26 @@ def test_boq_extraction_edge_cases(db_session, client, managed_docs):
         assert f.validation_status == ValidationStatus.INVALID
         assert "Missing quantity" in f.metadata_json["errors"]
 
+    # Idempotent normalization update regression
+    # Transition MISSING-01 to valid by patching chunk and re-running
+    miss_chunk = db_session.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id, DocumentChunk.content.contains("MISSING-01")).first()
+    miss_chunk.content = "MISSING-01 | 1.3 | Missing Qty | CUM | 10.000 | 100.00 | 1000.00"
+    db_session.commit()
+
+    res_re = client.post(f"/api/v1/documents/{doc.id}/intelligence/boq/extract", headers={"Authorization": f"Bearer {token}"})
+    assert res_re.status_code == 200
+
+    miss_facts_re = db_session.query(DocumentFact).filter(DocumentFact.document_id == doc.id).filter(DocumentFact.value == "MISSING-01").all()
+    assert miss_facts_re[0].validation_status == ValidationStatus.VALID
+
+    miss_qty_fact = db_session.query(DocumentFact).filter(DocumentFact.document_id == doc.id, DocumentFact.document_chunk_id == miss_chunk.id, DocumentFact.field_name == "quantity").first()
+    assert miss_qty_fact.normalized_value == "10.000"
+    assert miss_qty_fact.validation_status == ValidationStatus.VALID
+
+
 def test_boq_extraction_auth_and_state(db_session, client, managed_docs):
     token_pm = get_token(client, "pm@infrapm.gov", "PM@123")
-
+    token_viewer = get_token(client, "viewer@infrapm.gov", "View@123")
 
     doc = Document(
         document_type="CONTRACT", # Incompatible (9)
@@ -225,9 +245,13 @@ def test_boq_extraction_auth_and_state(db_session, client, managed_docs):
     db_session.commit()
     managed_docs.append(str(doc.id))
 
+    # 10. Unauthorized requests
+    res1 = client.post(f"/api/v1/documents/{doc.id}/intelligence/boq/extract", headers={"Authorization": f"Bearer {token_viewer}"})
+    assert res1.status_code == 403
 
     # 9. Incompatible document type
     res2 = client.post(f"/api/v1/documents/{doc.id}/intelligence/boq/extract", headers={"Authorization": f"Bearer {token_pm}"})
+
     assert res2.status_code == 400
     assert "requires BOQ document" in res2.json()["detail"]
 

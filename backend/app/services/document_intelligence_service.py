@@ -235,10 +235,11 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
         validation_errors = 0
         source_discrepancies = 0
 
-        seen_codes = set()
-        seen_numbers = set()
-        new_facts_added = []
+        parsed_rows = []
+        code_counts = {}
+        num_counts = {}
 
+        # Pass 1: Parse and identify duplicates globally
         for chunk in chunks:
             if chunk.sheet_name and "BOQ" not in chunk.sheet_name.upper():
                 continue
@@ -247,14 +248,27 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
             if len(parts) == 0:
                 continue
 
-            # Pad to 7 in case of missing trailing empty cells
             while len(parts) < 7:
                 parts.append("")
 
             item_code = parts[0]
             if item_code.upper() == "ITEM CODE":
-                continue # Skip header row
+                continue
 
+            item_number = parts[1]
+
+            if item_code:
+                code_counts[item_code] = code_counts.get(item_code, 0) + 1
+            if item_number:
+                num_counts[item_number] = num_counts.get(item_number, 0) + 1
+
+            parsed_rows.append((chunk, parts))
+
+        new_facts_added = []
+
+        # Pass 2: Extract and Validate
+        for chunk, parts in parsed_rows:
+            item_code = parts[0]
             item_number = parts[1]
             description = parts[2]
             unit = parts[3]
@@ -273,13 +287,10 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
             if not rate_str: row_errors.append("Missing rate")
             if not amount_str: row_errors.append("Missing source_amount")
 
-            if item_code and item_code in seen_codes:
+            if item_code and code_counts[item_code] > 1:
                 row_errors.append("Duplicate item_code")
-            if item_number and item_number in seen_numbers:
+            if item_number and num_counts[item_number] > 1:
                 row_errors.append("Duplicate item_number")
-
-            if item_code: seen_codes.add(item_code)
-            if item_number: seen_numbers.add(item_number)
 
             qty_dec = None
             rate_dec = None
@@ -339,21 +350,40 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
             }
 
             source_ref = f"Sheet {chunk.sheet_name} Row {chunk.row_start}"
-            metadata = {}
-            if item_code:
-                metadata["boq_item_code"] = item_code
-            if not is_valid:
-                metadata["errors"] = row_errors
-            elif has_discrepancy:
-                metadata["discrepancy"] = {
-                    "source_amount": str(amt_dec),
-                    "calculated_amount": str(calculated_amount),
-                    "difference": str(amt_dec - calculated_amount)
-                }
-
-            final_status = ValidationStatus.INVALID if not is_valid else (ValidationStatus.CONFLICT if has_discrepancy else ValidationStatus.VALID)
 
             for fname, fval in field_map.items():
+                metadata = {}
+                if item_code:
+                    metadata["boq_item_code"] = item_code
+
+                final_status = ValidationStatus.UNVALIDATED
+                normalized_val = None
+
+                if not is_valid:
+                    final_status = ValidationStatus.INVALID
+                    metadata["errors"] = row_errors
+                else:
+                    # Valid structure
+                    if fname == "source_amount" and has_discrepancy:
+                        final_status = ValidationStatus.CONFLICT
+                        metadata["discrepancy"] = {
+                            "source_amount": str(amt_dec),
+                            "calculated_amount": str(calculated_amount),
+                            "difference": str(amt_dec - calculated_amount)
+                        }
+                    else:
+                        final_status = ValidationStatus.VALID
+
+                    # Calculate normalized value
+                    if fname == "quantity":
+                        normalized_val = f"{qty_dec:.3f}"
+                    elif fname == "rate":
+                        normalized_val = f"{rate_dec:.2f}"
+                    elif fname == "source_amount":
+                        normalized_val = f"{amt_dec:.2f}"
+                    else:
+                        normalized_val = fval.strip()
+
                 matched_id = None
                 for fid, ef in unmatched_existing.items():
                     if ef.field_name == fname and ef.value == fval and ef.document_chunk_id == chunk.id:
@@ -362,10 +392,19 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
 
                 if matched_id:
                     ef = unmatched_existing[matched_id]
-                    if ef.validation_status != final_status or ef.metadata_json != metadata:
+                    # Update metadata, status, normalized_value
+                    needs_update = False
+                    if ef.validation_status != final_status:
                         ef.validation_status = final_status
+                        needs_update = True
+                    if ef.metadata_json != metadata:
                         ef.metadata_json = metadata
                         flag_modified(ef, "metadata_json")
+                        needs_update = True
+                    if ef.normalized_value != normalized_val:
+                        ef.normalized_value = normalized_val
+                        needs_update = True
+
                     del unmatched_existing[matched_id]
                     facts_extracted += 1
                 else:
@@ -375,22 +414,11 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
                         fact_type="BOQ",
                         field_name=fname,
                         value=fval,
-                        normalized_value=None,
+                        normalized_value=normalized_val,
                         source_reference=source_ref,
                         validation_status=final_status,
                         metadata_json=metadata
                     )
-
-                    if is_valid:
-                        if fname == "quantity":
-                            fact.normalized_value = f"{qty_dec:.3f}"
-                        elif fname == "rate":
-                            fact.normalized_value = f"{rate_dec:.2f}"
-                        elif fname == "source_amount":
-                            fact.normalized_value = f"{amt_dec:.2f}"
-                        elif fname in ("item_code", "item_number", "description", "unit"):
-                            fact.normalized_value = fval.strip()
-
                     db.add(fact)
                     new_facts_added.append(fact)
                     facts_extracted += 1
