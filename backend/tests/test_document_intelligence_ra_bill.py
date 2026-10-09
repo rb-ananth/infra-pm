@@ -44,9 +44,9 @@ def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
 
-    before_boq = [b.id for b in db_session.query(BoqItem).all()]
-    before_meas = [m.id for m in db_session.query(Measurement).all()]
-    before_rabill = [b.id for b in db_session.query(RABill).all()]
+    before_boq_vals = [(b.id, b.item_code, b.quantity, b.rate, b.amount) for b in db_session.query(BoqItem).all()]
+    before_meas_vals = [(m.id, m.reference, m.quantity) for m in db_session.query(Measurement).all()]
+    before_rabill_vals = [(b.id, b.bill_number, b.gross_amount, b.net_payable) for b in db_session.query(RABill).all()]
 
     xlsx_path = os.path.join(os.path.dirname(__file__), "fixtures/synthetic_project_evidence/RA-04.xlsx")
     with open(xlsx_path, "rb") as f:
@@ -80,10 +80,32 @@ def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
     assert summary["reconciliation_matches"] == 2
     assert summary["reconciliation_mismatches"] == 0
 
+    facts_after_first = {f.id for f in db_session.query(DocumentFact).filter(DocumentFact.document_id == doc_id).all()}
+    audit_count_first = db_session.query(AuditLog).filter(AuditLog.entity_name == "Document", AuditLog.entity_id == doc_id).count()
+
+    # Re-run extraction to verify idempotency
+    res_extract_2 = client.post(
+        f"/api/v1/documents/{doc_id}/intelligence/ra-bill/extract",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert res_extract_2.status_code == 200
+    
+    facts_after_second = {f.id for f in db_session.query(DocumentFact).filter(DocumentFact.document_id == doc_id).all()}
+    audit_count_second = db_session.query(AuditLog).filter(AuditLog.entity_name == "Document", AuditLog.entity_id == doc_id).count()
+
+    assert facts_after_second == facts_after_first, "Fact IDs must be preserved on unchanged re-extraction"
+    assert len(facts_after_second) == 2, "No duplicate facts should be created"
+    assert audit_count_second == audit_count_first, "No new audit logs should be created for unchanged re-extraction"
+
+
     # Ensure canonical intact
-    assert before_boq == [b.id for b in db_session.query(BoqItem).all()]
-    assert before_meas == [m.id for m in db_session.query(Measurement).all()]
-    assert before_rabill == [b.id for b in db_session.query(RABill).all()]
+    boq_vals_after = [(b.id, b.item_code, b.quantity, b.rate, b.amount) for b in db_session.query(BoqItem).all()]
+    meas_vals_after = [(m.id, m.reference, m.quantity) for m in db_session.query(Measurement).all()]
+    bill_vals_after = [(b.id, b.bill_number, b.gross_amount, b.net_payable) for b in db_session.query(RABill).all()]
+    
+    assert boq_vals_after == before_boq_vals
+    assert meas_vals_after == before_meas_vals
+    assert bill_vals_after == before_rabill_vals
 
 def test_ra_bill_extraction_edge_cases(db_session, client, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
@@ -196,6 +218,54 @@ def test_ra_bill_extraction_auth_and_state(db_session, client, managed_docs):
 
     revision.status = original_status
     db_session.commit()
+
+
+def test_atomic_failure(db_session, client, managed_docs, monkeypatch):
+    token = get_token(client, "pm@infrapm.gov", "PM@123")
+    contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
+
+    doc = Document(
+        document_type="RA_BILL",
+        document_name="Test Rollback",
+        sha256_hash="fakehashatomic",
+        ingestion_status="COMPLETED",
+        source_filename="fake.xlsx",
+        file_extension="xlsx",
+        mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        file_size_bytes=100,
+        source_system="MANUAL_UPLOAD",
+        contract_id=contract.id
+    )
+    db_session.add(doc)
+    db_session.commit()
+    managed_docs.append(str(doc.id))
+    
+    chunk1 = DocumentChunk(
+        document_id=doc.id, chunk_index=0, content="Bill Number | Gross Amount | Linked Measurements",
+        content_hash="hash0", sheet_name="Cover", row_start=1, row_end=1
+    )
+    chunk2 = DocumentChunk(
+        document_id=doc.id, chunk_index=1, content="RA-04 | 9675000 | 1",
+        content_hash="hash1", sheet_name="Cover", row_start=2, row_end=2
+    )
+    db_session.add(chunk1)
+    db_session.add(chunk2)
+    db_session.commit()
+
+    def mock_add_audit_log(*args, **kwargs):
+        print("MOCK CALLED")
+        raise ValueError("Simulated Audit Failure")
+        
+    import app.services.audit_service as aus
+    monkeypatch.setattr(aus, "add_audit_log", mock_add_audit_log)
+
+    import pytest
+    with pytest.raises(ValueError, match="Simulated"):
+        client.post(f"/api/v1/documents/{doc.id}/intelligence/ra-bill/extract", headers={"Authorization": f"Bearer {token}"})
+
+    # Ensure facts rolled back
+    facts_count = db_session.query(DocumentFact).filter(DocumentFact.document_id == doc.id).count()
+    assert facts_count == 0
 
 def test_transaction_rollback_on_failure(db_session, client, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
