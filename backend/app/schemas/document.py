@@ -83,3 +83,11 @@ class BoqExtractionSummaryResponse(BaseModel):
     facts_extracted: int
     validation_errors: int
     source_discrepancies: int
+
+class MeasurementExtractionSummaryResponse(BaseModel):
+    rows_processed: int
+    valid_measurements: int
+    facts_extracted: int
+    validation_errors: int
+    duplicate_references: int
+    unknown_boq_links: int

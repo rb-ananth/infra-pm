@@ -4,7 +4,11 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from app.models.document import Document, DocumentChunk, DocumentFact, ValidationStatus, DocumentType, IngestionStatus
+from app.models.document import Document
+from app.models.boq import Boq
+from app.models.boq_revision import BoqRevision
+from app.models.boq_item import BoqItem
+from app.models.document import DocumentChunk, DocumentFact, ValidationStatus, DocumentType, IngestionStatus
 from app.models.contract import Contract
 from app.models.user import User
 from app.services.audit_service import add_audit_log
@@ -454,6 +458,248 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
             "facts_extracted": facts_extracted,
             "validation_errors": validation_errors,
             "source_discrepancies": source_discrepancies
+        }
+    except Exception as e:
+        db.rollback()
+        raise e
+
+def extract_measurement_facts(db: Session, document_id: uuid.UUID, current_user: User) -> dict:
+    try:
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            raise DocumentNotFoundError("Document not found")
+        if doc.document_type != DocumentType.MEASUREMENT_BOOK:
+            raise DocumentStateError(f"Extraction requires MEASUREMENT_BOOK document, got {doc.document_type}")
+        if doc.ingestion_status != IngestionStatus.COMPLETED:
+            raise DocumentStateError(f"Extraction requires COMPLETED ingestion, got {doc.ingestion_status}")
+
+        valid_boq_codes = set()
+        if doc.contract_id:
+            boq_items = db.query(BoqItem.item_code).join(
+                BoqRevision, BoqItem.revision_id == BoqRevision.id
+            ).join(
+                Boq, BoqRevision.boq_id == Boq.id
+            ).filter(
+                Boq.contract_id == doc.contract_id,
+                BoqRevision.status == "Approved"
+            ).all()
+            valid_boq_codes = {row[0] for row in boq_items}
+
+        existing_facts = db.query(DocumentFact).filter(
+            DocumentFact.document_id == document_id,
+            DocumentFact.fact_type == "MEASUREMENT"
+        ).all()
+
+        unmatched_existing = {f.id: f for f in existing_facts}
+        chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).all()
+
+        rows_processed = 0
+        valid_measurements = 0
+        facts_extracted = 0
+        validation_errors = 0
+        duplicate_references = 0
+        unknown_boq_links = 0
+
+        parsed_rows = []
+        ref_counts = {}
+
+        for chunk in chunks:
+            if chunk.sheet_name and "MEASUREMENT" not in chunk.sheet_name.upper():
+                continue
+
+            parts = [p.strip() for p in chunk.content.split(" | ")]
+            if len(parts) == 0:
+                continue
+
+            while len(parts) < 6:
+                parts.append("")
+
+            reference = parts[0]
+            if reference.upper() == "REFERENCE":
+                continue
+
+            if reference:
+                ref_counts[reference] = ref_counts.get(reference, 0) + 1
+
+            parsed_rows.append((chunk, parts))
+
+        new_facts_added = []
+
+        for chunk, parts in parsed_rows:
+            reference = parts[0]
+            date_str = parts[1]
+            boq_item_code = parts[2]
+            quantity_str = parts[3]
+            location = parts[4]
+            remarks = parts[5]
+
+            rows_processed += 1
+            row_errors = []
+
+            if not reference: row_errors.append("Missing reference")
+            if not date_str: row_errors.append("Missing date")
+            if not boq_item_code: row_errors.append("Missing boq_item_code")
+            if not quantity_str: row_errors.append("Missing quantity")
+
+            is_duplicate = False
+            if reference and ref_counts[reference] > 1:
+                row_errors.append("Duplicate measurement reference")
+                is_duplicate = True
+
+            is_unknown_boq = False
+            if boq_item_code and boq_item_code not in valid_boq_codes:
+                row_errors.append(f"Unknown BOQ item code: {boq_item_code}")
+                is_unknown_boq = True
+
+            qty_dec = None
+            if quantity_str:
+                try:
+                    qty_dec = Decimal(quantity_str.replace(',', ''))
+                    if qty_dec < 0:
+                        row_errors.append("Quantity cannot be negative")
+                    elif abs(qty_dec.as_tuple().exponent) > 3:
+                        row_errors.append("Quantity has more than 3 decimal places")
+                except InvalidOperation:
+                    row_errors.append("Invalid quantity format")
+
+            date_val = None
+            if date_str:
+                parsed_date = None
+                date_clean = date_str.split(" ")[0].strip() # Handle "2026-04-25 00:00:00"
+
+                formats = [
+                    "%Y-%m-%d",
+                    "%d-%b-%Y",
+                    "%d-%b-%y",
+                    "%d/%m/%Y",
+                    "%d/%m/%y"
+                ]
+                from datetime import datetime
+                for fmt in formats:
+                    try:
+                        parsed_date = datetime.strptime(date_clean, fmt)
+                        break
+                    except ValueError:
+                        pass
+
+                if parsed_date:
+                    date_val = parsed_date.strftime("%Y-%m-%d")
+                else:
+                    row_errors.append("Invalid date format")
+
+            is_valid = len(row_errors) == 0
+
+            if is_valid:
+                valid_measurements += 1
+            else:
+                validation_errors += 1
+                if is_duplicate:
+                    duplicate_references += 1
+                if is_unknown_boq:
+                    unknown_boq_links += 1
+
+            field_map = {
+                "measurement_reference": reference,
+                "measurement_date": date_str,
+                "boq_item_code": boq_item_code,
+                "quantity": quantity_str
+            }
+            if location: field_map["location"] = location
+            if remarks: field_map["remarks"] = remarks
+
+            source_ref = f"Sheet {chunk.sheet_name} Row {chunk.row_start}"
+
+            for fname, fval in field_map.items():
+                metadata = {}
+                if reference:
+                    metadata["measurement_reference"] = reference
+
+                final_status = ValidationStatus.UNVALIDATED
+                normalized_val = None
+
+                if not is_valid:
+                    final_status = ValidationStatus.INVALID
+                    metadata["errors"] = row_errors
+                else:
+                    final_status = ValidationStatus.VALID
+                    if fname == "quantity":
+                        normalized_val = f"{qty_dec:.3f}"
+                    elif fname == "measurement_date":
+                        normalized_val = date_val
+                    else:
+                        normalized_val = fval.strip()
+
+                matched_id = None
+                for fid, ef in unmatched_existing.items():
+                    if ef.field_name == fname and ef.value == fval and ef.document_chunk_id == chunk.id:
+                        matched_id = fid
+                        break
+
+                if matched_id:
+                    ef = unmatched_existing[matched_id]
+                    needs_update = False
+                    if ef.validation_status != final_status:
+                        ef.validation_status = final_status
+                        needs_update = True
+                    if ef.metadata_json != metadata:
+                        ef.metadata_json = metadata
+                        flag_modified(ef, "metadata_json")
+                        needs_update = True
+                    if ef.normalized_value != normalized_val:
+                        ef.normalized_value = normalized_val
+                        needs_update = True
+
+                    del unmatched_existing[matched_id]
+                    facts_extracted += 1
+                else:
+                    fact = DocumentFact(
+                        document_id=doc.id,
+                        document_chunk_id=chunk.id,
+                        fact_type="MEASUREMENT",
+                        field_name=fname,
+                        value=fval,
+                        normalized_value=normalized_val,
+                        source_reference=source_ref,
+                        validation_status=final_status,
+                        metadata_json=metadata
+                    )
+                    db.add(fact)
+                    new_facts_added.append(fact)
+                    facts_extracted += 1
+
+        deleted_count = 0
+        for fid, ef in unmatched_existing.items():
+            db.delete(ef)
+            deleted_count += 1
+
+        db.flush()
+
+        if new_facts_added or deleted_count > 0:
+            add_audit_log(
+                db=db,
+                user_id=current_user.id,
+                entity_name="Document",
+                entity_id=doc.id,
+                action="MEASUREMENT_FACTS_EXTRACTED",
+                changes={
+                    "rows_processed": rows_processed,
+                    "valid_measurements": valid_measurements,
+                    "validation_errors": validation_errors,
+                    "duplicate_references": duplicate_references,
+                    "unknown_boq_links": unknown_boq_links,
+                    "extracted_count": len(new_facts_added),
+                    "deleted_count": deleted_count
+                }
+            )
+
+        db.commit()
+        return {
+            "rows_processed": rows_processed,
+            "valid_measurements": valid_measurements,
+            "facts_extracted": facts_extracted,
+            "validation_errors": validation_errors,
+            "duplicate_references": duplicate_references,
+            "unknown_boq_links": unknown_boq_links
         }
     except Exception as e:
         db.rollback()
