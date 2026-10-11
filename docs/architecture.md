@@ -4,52 +4,23 @@
 
 ```mermaid
 flowchart TD
-    subgraph Client Layer
-        UI[React / TypeScript Frontend\n(Vite)]
+    subgraph Client["Client Layer"]
+        UI["React / TypeScript Frontend (Vite)"]
     end
 
-    subgraph API Layer
-        API[FastAPI Router\n(Auth, Validation, DI)]
+    subgraph Backend["Backend Layer"]
+        API["FastAPI REST API"]
+        Services["Service Layer"]
     end
 
-    subgraph Service Layer
-        AuthSvc[Auth Service]
-        ProjSvc[Project & Contract Services]
-        BoqSvc[BOQ Service]
-        MeasSvc[Measurement Service]
-        BillSvc[RA Billing Service]
-        EotSvc[EOT Service]
-        EvmSvc[EVM Service]
-        DocSvc[Document Intelligence Service]
+    subgraph Data["Data Layer"]
+        ORM["SQLAlchemy ORM"]
+        DB[("PostgreSQL + pgvector")]
     end
 
-    subgraph Data Access Layer
-        ORM[SQLAlchemy ORM]
-    end
-
-    subgraph Storage Layer
-        DB[(PostgreSQL)]
-    end
-
-    UI -->|HTTPS / REST| API
-    API --> AuthSvc
-    API --> ProjSvc
-    API --> BoqSvc
-    API --> MeasSvc
-    API --> BillSvc
-    API --> EotSvc
-    API --> EvmSvc
-    API --> DocSvc
-
-    AuthSvc --> ORM
-    ProjSvc --> ORM
-    BoqSvc --> ORM
-    MeasSvc --> ORM
-    BillSvc --> ORM
-    EotSvc --> ORM
-    EvmSvc --> ORM
-    DocSvc --> ORM
-
+    UI --> API
+    API --> Services
+    Services --> ORM
     ORM --> DB
 ```
 
@@ -59,35 +30,36 @@ The current platform implements a deterministic ingestion and reconciliation pip
 
 ```mermaid
 flowchart LR
-    Upload[Document Upload\n(PDF/XLSX)] --> Parse[Pattern-Based Extractor\n(Regex / Pandas)]
-    Parse --> Validate[Structural Validation\n(Pydantic)]
-    Validate --> Reconcile[Canonical Reconciliation\n(Entity Matching)]
-    Reconcile --> Persist[Database Persistence]
+    Upload["Document Upload (PDF / XLSX)"]
+    Parse["Pattern-Based Extraction"]
+    Validate["Structured Validation"]
+    Reconcile["Entity Matching and Reconciliation"]
+    Persist[("PostgreSQL Persistence")]
 
-    subgraph Planned Capabilities
-        LLM[LLM / GenAI Fallback]
-        VectorDB[(Vector Embeddings\nfor RAG)]
-    end
+    Upload --> Parse
+    Parse --> Validate
+    Validate --> Reconcile
+    Reconcile --> Persist
 
-    Parse -.->|Fallback| LLM
-    Persist -.->|Embed| VectorDB
+    Upload -.-> RAG["RAG Pipeline"]
+    RAG --> Embeddings["Embedding Generation"]
+    Embeddings --> VectorDB[("Vector Search")]
 ```
 
 ## Earned Value Management (EVM) Flow
 
 ```mermaid
 flowchart TD
-    Contract[Contract Value & Timeline] --> Baseline[EVM Baseline\n(Planned Value Curve)]
-    Measurements[Approved Measurements] --> RABill[RA Billing]
+    Contract["Contract Value and Timeline"]
+    Baseline["EVM Baseline"]
+    Measurements["Approved Measurements"]
+    RABill["RA Billing"]
+    Engine["EVM Calculation Engine"]
+    Metrics["PV, EV, AC, SPI and CPI"]
 
-    Baseline --> Engine[EVM Calculation Engine]
+    Contract --> Baseline
+    Measurements --> RABill
+    Baseline --> Engine
     RABill --> Engine
-
-    Engine --> Metrics[Period Metrics\n(PV, EV, AC, SPI, CPI)]
-
-    subgraph Planned Capabilities
-        Predictive[Predictive Forecasting\n(Cost/Schedule Overruns)]
-    end
-
-    Metrics -.-> Predictive
+    Engine --> Metrics
 ```
