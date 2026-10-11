@@ -62,14 +62,6 @@ npm run dev
 ```
 **App available at**: `http://localhost:5173`
 
-## Development Login
-These credentials are for local development only:
-- admin@infrapm.gov / Admin@123
-- pm@infrapm.gov / PM@123
-- eng@infrapm.gov / Eng@123
-- billing@infrapm.gov / Bill@123
-- viewer@infrapm.gov / View@123
-
 ## Test Suite Results
 *Executed on: 2026-10-09*
 ```bash
