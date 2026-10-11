@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.golden
+
 import os
 import json
 import uuid
@@ -52,7 +55,7 @@ def get_token(client, email, password):
     response = client.post("/api/v1/auth/login", data={"username": email, "password": password})
     return response.json()["access_token"]
 
-def test_boq_extraction_golden_dataset(db_session, client, managed_docs):
+def test_boq_extraction_golden_dataset(db_session, client, managed_docs, isolated_project_and_contract):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
 
     # Take canonical snapshots to ensure no changes
@@ -66,7 +69,7 @@ def test_boq_extraction_golden_dataset(db_session, client, managed_docs):
 
     res_reg = client.post(
         "/api/v1/documents/",
-        data={"project_id": str(db_session.query(Project).first().id), "document_type": "BOQ", "document_name": "Test BOQ Extraction"},
+        data={"project_id": str(isolated_project_and_contract['project'].id), "document_type": "BOQ", "document_name": "Test BOQ Extraction"},
         files={"file": ("approved_boq.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         headers={"Authorization": f"Bearer {token}"}
     )
@@ -87,6 +90,8 @@ def test_boq_extraction_golden_dataset(db_session, client, managed_docs):
     )
     assert res_extract.status_code == 200
     summary = res_extract.json()
+
+    print("\nBOQ EXTRACTION SUMMARY:", summary)
 
     assert summary["valid_items"] == 10
     assert summary["validation_errors"] == 0

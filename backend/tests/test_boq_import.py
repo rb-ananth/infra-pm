@@ -12,6 +12,40 @@ from openpyxl import Workbook
 from app.models.audit_log import AuditLog
 from app.models.boq import Boq
 from app.models.boq_item import BoqItem
+
+import pytest
+from app.main import app
+from app.api.deps import get_db
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from app.core.config import settings
+
+from datetime import date
+from decimal import Decimal
+from app.models.department import Department
+from app.models.project import Project
+from app.models.contractor import Contractor
+
+@pytest.fixture
+def client():
+    engine = create_engine(settings.DATABASE_URL)
+    connection = engine.connect()
+    transaction = connection.begin()
+    TestingSessionLocal = sessionmaker(bind=connection, join_transaction_mode="create_savepoint")
+
+    def override_get_db():
+        session = TestingSessionLocal()
+        yield session
+        session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    from fastapi.testclient import TestClient
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+    transaction.rollback()
+    connection.close()
+
 from app.models.boq_revision import BoqRevision
 from app.models.contract import Contract
 from app.models.user import User
@@ -303,20 +337,64 @@ def test_viewer_is_denied_import_endpoint(client):
 
     assert response.status_code == 403
 
-
 def _create_integration_revision():
-    db = SessionLocal()
-    contract = db.query(Contract).first()
+    db = next(app.dependency_overrides[get_db]())
+
     admin = db.query(User).filter(User.email == "admin@infrapm.gov").first()
-    assert contract is not None
-    assert admin is not None
+    assert admin is not None, "Admin test user must exist before BOQ integration tests"
+
+    suffix = uuid4().hex[:12]
+
+    department = Department(
+        code=f"BOQ-{suffix}",
+        name="BOQ Import Test Department",
+    )
+    db.add(department)
+    db.flush()
+
+    project = Project(
+        code=f"BOQ-PRJ-{suffix}",
+        name="BOQ Import Integration Test Project",
+        dept_id=department.id,
+        pm_id=admin.id,
+        total_estimated_cost=Decimal("100000.00"),
+        start_date=date(2026, 9, 1),
+        expected_completion=date(2027, 9, 1),
+    )
+    db.add(project)
+    db.flush()
+
+    contractor = Contractor(
+        registration_number=f"BOQ-{suffix}",
+        name="BOQ Import Test Contractor",
+        status="Active",
+    )
+    db.add(contractor)
+    db.flush()
+
+    contract = Contract(
+        contract_number=f"BOQ-CON-{suffix}",
+        project_id=project.id,
+        contractor_id=contractor.id,
+        contract_type="Works",
+        award_date=date(2026, 9, 1),
+        contract_value=Decimal("100000.00"),
+        start_date=date(2026, 9, 1),
+        original_completion_date=date(2027, 9, 1),
+        current_completion_date=date(2027, 9, 1),
+        status="Draft",
+    )
+    db.add(contract)
+    db.flush()
+
     boq = Boq(
         contract_id=contract.id,
-        boq_number=f"IMPORT-TEST-{uuid4().hex[:12]}",
+        boq_number=f"IMPORT-TEST-{suffix}",
         title="Import Integration Test",
     )
     db.add(boq)
     db.flush()
+
     revision = BoqRevision(
         boq_id=boq.id,
         revision_number=1,
@@ -324,8 +402,10 @@ def _create_integration_revision():
         status="Draft",
     )
     db.add(revision)
-    db.commit()
+    db.flush()
+
     return db, boq, revision, admin
+
 
 
 def _cleanup_integration_revision(db, boq_id, revision_id):
@@ -338,7 +418,7 @@ def _cleanup_integration_revision(db, boq_id, revision_id):
     db.commit()
 
 
-def test_postgresql_import_persists_items_amounts_total_and_audit():
+def test_postgresql_import_persists_items_amounts_total_and_audit(client):
     db, boq, revision, admin = _create_integration_revision()
     try:
         content = csv_bytes([
@@ -366,10 +446,10 @@ def test_postgresql_import_persists_items_amounts_total_and_audit():
         assert total == Decimal("21.01")
     finally:
         _cleanup_integration_revision(db, boq.id, revision.id)
-        db.close()
+        pass
 
 
-def test_postgresql_import_invalid_row_is_atomic():
+def test_postgresql_import_invalid_row_is_atomic(client):
     db, boq, revision, admin = _create_integration_revision()
     try:
         content = csv_bytes([
@@ -393,4 +473,4 @@ def test_postgresql_import_invalid_row_is_atomic():
         )
     finally:
         _cleanup_integration_revision(db, boq.id, revision.id)
-        db.close()
+        pass

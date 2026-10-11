@@ -1330,3 +1330,122 @@ button:disabled {
     flex-direction: column;
   }
 }
+
+.document-qa-form {
+  margin-bottom: 24px;
+}
+
+.document-qa-form form {
+  display: grid;
+  gap: 20px;
+}
+
+.document-qa-form label {
+  display: grid;
+  gap: 8px;
+  color: #172033;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.document-qa-form select,
+.document-qa-form textarea {
+  width: 100%;
+  border: 1px solid #cfd7e3;
+  border-radius: 8px;
+  padding: 12px;
+  color: #172033;
+  background: #fff;
+  font: inherit;
+}
+
+.document-qa-form textarea {
+  resize: vertical;
+}
+
+.document-qa-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.document-qa-status {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #e6f4ec;
+  color: #17663a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.document-qa-status.insufficient {
+  background: #fff1d6;
+  color: #8a5700;
+}
+
+.document-qa-answer {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.document-qa-source-heading {
+  margin: 24px 0 12px;
+}
+
+.document-qa-sources {
+  display: grid;
+  gap: 12px;
+}
+
+.document-qa-source {
+  padding: 16px;
+  border: 1px solid #dfe4ec;
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.document-qa-source h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.document-qa-source p {
+  overflow-wrap: anywhere;
+}
+
+.document-qa-source dl {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin-bottom: 0;
+  font-size: 13px;
+}
+
+.document-qa-source dt {
+  color: #687791;
+  font-weight: 700;
+}
+
+.document-qa-source dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.document-qa-disclaimer {
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .document-qa-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .document-qa-actions button {
+    width: 100%;
+  }
+}

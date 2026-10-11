@@ -1,3 +1,4 @@
+import pytest; pytestmark = pytest.mark.golden
 import os
 import uuid
 import pytest
@@ -42,16 +43,22 @@ def managed_docs(db_session):
         db_session.query(DocumentFact).filter(DocumentFact.document_id.in_(doc_ids)).delete(synchronize_session=False)
         db_session.query(DocumentChunk).filter(DocumentChunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
         db_session.query(Document).filter(Document.id.in_(doc_ids)).delete(synchronize_session=False)
-        db_session.commit()
+    db_session.commit()
 
 def get_token(client, username, password):
     response = client.post("/api/v1/auth/login", data={"username": username, "password": password})
     assert response.status_code == 200
     return response.json()["access_token"]
 
-def test_document_intelligence_pipeline(db_session, client, managed_docs):
+def test_document_intelligence_pipeline(db_session, client, managed_docs, isolated_project_and_contract):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
-    contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
+
+    # Force the isolated contract to use the exact number required by the synthetic PDF pipeline
+    contract = db_session.merge(isolated_project_and_contract['contract'])
+    contract.contract_number = "CNT-PWD-2026-001"
+    contract.contract_value = 485000000.00
+    db_session.commit()
+
 
     pdf_path = os.path.join(os.path.dirname(__file__), "fixtures", "synthetic_project_evidence", "contract_agreement.pdf")
     with open(pdf_path, "rb") as f:
@@ -61,7 +68,7 @@ def test_document_intelligence_pipeline(db_session, client, managed_docs):
     non_contract_res = client.post(
         "/api/v1/documents/",
         data={
-            "project_id": str(db_session.query(Project).first().id), "document_type": "BOQ",
+            "project_id": str(isolated_project_and_contract['project'].id), "document_type": "BOQ",
             "document_name": "Test Contract Intelligence - Bad Type",
             "project_id": str(contract.project_id)
         },
@@ -85,7 +92,7 @@ def test_document_intelligence_pipeline(db_session, client, managed_docs):
     response = client.post(
         "/api/v1/documents/",
         data={
-            "project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT",
+            "project_id": str(isolated_project_and_contract['project'].id), "document_type": "CONTRACT",
             "document_name": "Test Contract Intelligence",
             "project_id": str(contract.project_id),
             "contract_id": str(contract.id)
@@ -141,9 +148,15 @@ def test_document_intelligence_pipeline(db_session, client, managed_docs):
     fake_id = str(uuid.uuid4())
     assert client.post(f"/api/v1/documents/{fake_id}/intelligence/extract", headers={"Authorization": f"Bearer {token}"}).status_code == 404
 
-def test_document_intelligence_edge_cases(db_session, client, managed_docs):
+def test_document_intelligence_edge_cases(db_session, client, managed_docs, isolated_project_and_contract):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
-    contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
+
+    # Force the isolated contract to use the exact number required by the synthetic PDF pipeline
+    contract = db_session.merge(isolated_project_and_contract['contract'])
+    contract.contract_number = "CNT-PWD-2026-001"
+    contract.contract_value = 485000000.00
+    db_session.commit()
+
 
     doc = Document(
         document_type="CONTRACT",

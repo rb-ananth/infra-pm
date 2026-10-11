@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.golden
+
 import os
 
 
@@ -54,7 +57,7 @@ def get_token(client, username, password):
     response = client.post("/api/v1/auth/login", data={"username": username, "password": password})
     return response.json()["access_token"]
 
-def test_measurement_extraction_golden_dataset(db_session, client, managed_docs):
+def test_measurement_extraction_golden_dataset(db_session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
 
@@ -68,7 +71,7 @@ def test_measurement_extraction_golden_dataset(db_session, client, managed_docs)
 
     res_reg = client.post(
         "/api/v1/documents/",
-        data={"project_id": str(db_session.query(Project).first().id), "document_type": "MEASUREMENT_BOOK", "document_name": "Test MB Extraction", "contract_id": str(contract.id)},
+        data={"project_id": str(populate_golden_dataset.id), "document_type": "MEASUREMENT_BOOK", "document_name": "Test MB Extraction", "contract_id": str(contract.id)},
         files={"file": ("measurement_book.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         headers={"Authorization": f"Bearer {token}"}
     )
@@ -90,12 +93,6 @@ def test_measurement_extraction_golden_dataset(db_session, client, managed_docs)
     summary = res_extract.json()
 
     print("SUMMARY:", summary)
-    print("ERRORS:")
-
-    os.system("python3 get_errors.py")
-    print("ERRORS:")
-    import subprocess
-    subprocess.run(["python3", "get_errors.py"])
     assert summary["valid_measurements"] == 12
     assert summary["validation_errors"] == 0
     assert summary["duplicate_references"] == 0
@@ -135,7 +132,7 @@ def test_measurement_extraction_golden_dataset(db_session, client, managed_docs)
     assert before_boq == after_boq
     assert before_meas == after_meas
 
-def test_measurement_extraction_edge_cases(db_session, client, managed_docs):
+def test_measurement_extraction_edge_cases(db_session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
 
@@ -209,7 +206,7 @@ def test_measurement_extraction_edge_cases(db_session, client, managed_docs):
     assert miss_qty_fact.normalized_value == "100.000"
     assert miss_qty_fact.validation_status == ValidationStatus.VALID
 
-def test_measurement_extraction_auth_and_state(db_session, client, managed_docs):
+def test_measurement_extraction_auth_and_state(db_session, client, managed_docs, populate_golden_dataset):
     token_pm = get_token(client, "pm@infrapm.gov", "PM@123")
     token_viewer = get_token(client, "viewer@infrapm.gov", "View@123")
 
@@ -274,7 +271,7 @@ def test_measurement_extraction_auth_and_state(db_session, client, managed_docs)
     # Revert
     revision.status = original_status
     db_session.commit()
-def test_transaction_rollback_on_failure(db_session, client, managed_docs):
+def test_transaction_rollback_on_failure(db_session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
 

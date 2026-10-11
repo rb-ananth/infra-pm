@@ -4,6 +4,72 @@ from app.core.database import SessionLocal
 from app.models.audit_log import AuditLog
 from app.models.contractor import Contractor
 
+import pytest
+from app.main import app
+from app.api.deps import get_db
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from app.core.config import settings
+
+from app.models.user import User
+from app.models.role import Role
+from app.core.security import get_password_hash
+
+@pytest.fixture
+def client():
+    engine = create_engine(settings.DATABASE_URL)
+    connection = engine.connect()
+    transaction = connection.begin()
+    TestingSessionLocal = sessionmaker(bind=connection, join_transaction_mode="create_savepoint")
+
+    def override_get_db():
+        session = TestingSessionLocal()
+        yield session
+        session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+        # Create test accounts within the test's rollbackable transaction.
+    db = TestingSessionLocal()
+    try:
+        test_users = [
+            ("admin@infrapm.gov", "Admin@123", "Admin"),
+            ("pm@infrapm.gov", "PM@123", "Project Manager"),
+            ("viewer@infrapm.gov", "View@123", "Viewer"),
+            ("eng@infrapm.gov", "Eng@123", "Engineer"),
+        ]
+
+        for email, password, role_name in test_users:
+            role = db.query(Role).filter_by(name=role_name).first()
+            if role is None:
+                role = Role(name=role_name)
+                db.add(role)
+                db.flush()
+
+            user = db.query(User).filter_by(email=email).first()
+            if user is None:
+                user = User(
+                    email=email,
+                    password_hash=get_password_hash(password),
+                    role_id=role.id,
+                    is_active=True,
+                )
+                db.add(user)
+            else:
+                user.password_hash = get_password_hash(password)
+                user.role_id = role.id
+                user.is_active = True
+
+        db.flush()
+    finally:
+        db.close()
+    from fastapi.testclient import TestClient
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+    transaction.rollback()
+    connection.close()
+
+
 
 def login(client, email, password):
     response = client.post(
@@ -177,7 +243,7 @@ def test_contractor_changes_are_audited(client):
     assert response.status_code == 200
     contractor_id = uuid.UUID(response.json()["id"])
 
-    db = SessionLocal()
+    db = next(app.dependency_overrides[get_db]())
     try:
         audit = (
             db.query(AuditLog)

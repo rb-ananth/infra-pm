@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.golden
+
 import json
 import os
 import uuid
@@ -41,7 +44,7 @@ def managed_docs(db_session):
         db_session.query(Document).filter(Document.id == doc_id).delete()
     db_session.commit()
 
-def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
+def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
 
@@ -55,7 +58,7 @@ def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
 
     res_reg = client.post(
         "/api/v1/documents/",
-        data={"project_id": str(db_session.query(Project).first().id), "document_type": "RA_BILL", "document_name": "Test RA-04 Extraction", "contract_id": str(contract.id)},
+        data={"project_id": str(populate_golden_dataset.id), "document_type": "RA_BILL", "document_name": "Test RA-04 Extraction", "contract_id": str(contract.id)},
         files={"file": ("RA-04.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         headers={"Authorization": f"Bearer {token}"}
     )
@@ -108,7 +111,7 @@ def test_ra_bill_extraction_golden_dataset(db_session, client, managed_docs):
     assert meas_vals_after == before_meas_vals
     assert bill_vals_after == before_rabill_vals
 
-def test_ra_bill_extraction_edge_cases(db_session, client, managed_docs):
+def test_ra_bill_extraction_edge_cases(db_session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
 
@@ -180,7 +183,7 @@ def test_ra_bill_extraction_edge_cases(db_session, client, managed_docs):
     cover_fact = next(f for f in facts if f.fact_type == "RA_BILL_COVER" and f.value == "RA-05")
     assert any("Multiple cover data rows found" in err for err in cover_fact.metadata_json["errors"])
 
-def test_ra_bill_extraction_auth_and_state(db_session, client, managed_docs):
+def test_ra_bill_extraction_auth_and_state(db_session, client, managed_docs, populate_golden_dataset):
     token_pm = get_token(client, "pm@infrapm.gov", "PM@123")
     token_viewer = get_token(client, "viewer@infrapm.gov", "View@123")
 
@@ -241,7 +244,7 @@ def test_ra_bill_extraction_auth_and_state(db_session, client, managed_docs):
     db_session.commit()
 
 
-def test_atomic_failure(db_session, client, managed_docs, monkeypatch):
+def test_atomic_failure(db_session, client, managed_docs, monkeypatch, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     contract = db_session.query(Contract).filter(Contract.contract_number == "CNT-PWD-2026-001").first()
 
@@ -288,7 +291,7 @@ def test_atomic_failure(db_session, client, managed_docs, monkeypatch):
     facts_count = db_session.query(DocumentFact).filter(DocumentFact.document_id == doc.id).count()
     assert facts_count == 0
 
-def test_transaction_rollback_on_failure(db_session, client, managed_docs):
+def test_transaction_rollback_on_failure(db_session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
 
     doc = Document(

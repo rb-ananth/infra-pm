@@ -25,6 +25,10 @@ import MeasurementDetails from "./pages/MeasurementDetails";
 import RABills from "./pages/RABills";
 import RABillDetails from "./pages/RABillDetails";
 import EVM from "./pages/EVM";
+import EOTApplications from "./pages/EOTApplications";
+import EOTApplicationCreate from "./pages/EOTApplicationCreate";
+import EOTApplicationDetails from "./pages/EOTApplicationDetails";
+import DocumentQA from "./pages/DocumentQA";
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -180,10 +184,25 @@ function App() {
             />
 
             <Route
+              path="/document-qa"
+              element={<DocumentQA />}
+            />
+
+            <Route
               path="*"
               element={<Navigate to="/" replace />}
             />
-          </Routes>
+                        <Route path="/eot" element={<EOTApplications role={user.role} />} />
+                        <Route
+              path="/eot/create"
+              element={
+                ["Admin", "Project Manager", "Engineer"].includes(user.role)
+                  ? <EOTApplicationCreate role={user.role} />
+                  : <Navigate to="/eot" replace />
+              }
+            />
+            <Route path="/eot/:id" element={<EOTApplicationDetails role={user.role} userId={user.id} />} />
+            </Routes>
         </main>
       </div>
   );

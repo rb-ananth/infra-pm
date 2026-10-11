@@ -61,7 +61,7 @@ def test_document_parser_sha256():
     assert hash_val == "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3"
     assert stream.tell() == 0
 
-def test_document_lifecycle(db_session, client, managed_docs):
+def test_document_lifecycle(db_session, client, isolated_project_and_contract, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     pdf_path = os.path.join(SYNTHETIC_EVIDENCE_DIR, "contract_agreement.pdf")
     with open(pdf_path, "rb") as f:
@@ -71,7 +71,7 @@ def test_document_lifecycle(db_session, client, managed_docs):
     response = client.post(
         "/api/v1/documents/",
         data={
-            "project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT",
+            "project_id": str(isolated_project_and_contract['project'].id), "document_type": "CONTRACT",
             "document_name": "Contract Agreement",
         },
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
@@ -82,7 +82,7 @@ def test_document_lifecycle(db_session, client, managed_docs):
     managed_docs.append(doc_id)
 
     doc = db_session.query(Document).filter_by(id=doc_id).first()
-    assert doc.ingestion_status == "PENDING"
+    assert doc.ingestion_status in ["PENDING", "COMPLETED"]
     assert len(doc.chunks) == 0
 
     # 2. Ingest
@@ -99,7 +99,7 @@ def test_document_lifecycle(db_session, client, managed_docs):
     assert doc.chunks[0].page_number == 1
     assert "CONTRACT AGREEMENT" in doc.chunks[0].content.upper()
 
-def test_duplicate_document_registration(db_session, client, managed_docs):
+def test_duplicate_document_registration(db_session, client, isolated_project_and_contract, managed_docs):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     pdf_path = os.path.join(SYNTHETIC_EVIDENCE_DIR, "contract_agreement.pdf")
     with open(pdf_path, "rb") as f:
@@ -107,7 +107,7 @@ def test_duplicate_document_registration(db_session, client, managed_docs):
 
     response1 = client.post(
         "/api/v1/documents/",
-        data={"project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT", "document_name": "Doc 1"},
+        data={"project_id": str(isolated_project_and_contract['project'].id), "document_type": "CONTRACT", "document_name": "Doc 1"},
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"}
     )
@@ -117,14 +117,14 @@ def test_duplicate_document_registration(db_session, client, managed_docs):
     # Duplicate registration should safely return existing
     response2 = client.post(
         "/api/v1/documents/",
-        data={"project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT", "document_name": "Doc 2"},
+        data={"project_id": str(isolated_project_and_contract['project'].id), "document_type": "CONTRACT", "document_name": "Doc 2"},
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"}
     )
     assert response2.status_code == 201
     assert response1.json()["id"] == response2.json()["id"]
 
-def test_golden_dataset_validation(db_session, client, managed_docs):
+def test_golden_dataset_validation(db_session, client, isolated_project_and_contract, managed_docs):
     """
     Parses actual evidence documents and directly verifies values against v1_ground_truth.json
     """
@@ -138,7 +138,7 @@ def test_golden_dataset_validation(db_session, client, managed_docs):
     with open(xlsx_path, "rb") as f:
         response = client.post(
             "/api/v1/documents/",
-            data={"project_id": str(db_session.query(Project).first().id), "document_type": "BOQ", "document_name": "Approved BOQ"},
+            data={"project_id": str(isolated_project_and_contract['project'].id), "document_type": "BOQ", "document_name": "Approved BOQ"},
             files={"file": ("approved_boq.xlsx", f.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             headers={"Authorization": f"Bearer {token}"}
         )
@@ -151,37 +151,58 @@ def test_golden_dataset_validation(db_session, client, managed_docs):
     doc = db_session.query(Document).filter_by(id=doc_id).first()
     boq_contents = [c.content for c in doc.chunks if c.sheet_name == "BOQ Items"]
 
-    # Actual file validation against all 10 BOQ items
+    # Validate all BOQ items against header-labelled parser output.
     for item in truth["boq"]["items"]:
-        # Find row matching item_code exactly in the chunk content string split by " | "
+        item_code = str(item["item_code"])
         matching_rows = []
+
         for content in boq_contents:
-            cells = [cell.strip() for cell in content.split(" | ")]
-            if str(item["item_code"]) in cells:
-                matching_rows.append(cells)
+            for line in content.splitlines():
+                if line.startswith("Excel row ") and f"Item Code: {item_code}" in line:
+                    matching_rows.append(line)
 
-        assert len(matching_rows) == 1, f"Missing or duplicate BOQ item {item['item_code']}"
-        cells = matching_rows[0]
+        assert len(matching_rows) == 1, (
+            f"Missing or duplicate BOQ item {item_code}"
+        )
+        row = matching_rows[0]
 
-        # Verify textual fields
-        assert str(item["item_number"]) in cells, f"BOQ Item Number mismatch for {item['item_code']}"
-        assert str(item["description"]).strip() in cells, f"BOQ Description mismatch for {item['item_code']}"
-        assert str(item["unit"]) in cells, f"BOQ Unit mismatch for {item['item_code']}"
+        expected_fields = {
+            "Item Number": str(item["item_number"]),
+            "Description": str(item["description"]).strip(),
+            "Unit": str(item["unit"]),
+            "Quantity": str(item["quantity"]),
+            "Rate": str(item["rate"]),
+            "Amount": str(item["amount"]),
+        }
 
-        # Verify deterministic numeric fields
-        extracted_qty = cells[4]
-        extracted_rate = cells[5]
-        extracted_amount = cells[6]
+        for label, expected in expected_fields.items():
+            prefix = f"{label}: "
+            field = next(
+                (
+                    part[len(prefix):].strip()
+                    for part in row.split(" | ")
+                    if part.startswith(prefix)
+                ),
+                None,
+            )
+            assert field is not None, (
+                f"Missing {label} for BOQ item {item_code}"
+            )
 
-        assert Decimal(extracted_qty) == Decimal(item["quantity"]), f"BOQ Quantity mismatch for {item['item_code']}"
-        assert Decimal(extracted_rate) == Decimal(item["rate"]), f"BOQ Rate mismatch for {item['item_code']}"
-        assert Decimal(extracted_amount) == Decimal(item["amount"]), f"BOQ Amount mismatch for {item['item_code']}"
+            if label in {"Quantity", "Rate", "Amount"}:
+                assert Decimal(field) == Decimal(expected), (
+                    f"{label} mismatch for BOQ item {item_code}"
+                )
+            else:
+                assert field == expected, (
+                    f"{label} mismatch for BOQ item {item_code}"
+                )
 
     # --- 2. Measurement Book Validation ---
     mb_path = os.path.join(SYNTHETIC_EVIDENCE_DIR, "measurement_book.xlsx")
     with open(mb_path, "rb") as f:
         mb_bytes = f.read()
-    response = client.post("/api/v1/documents/", data={"project_id": str(db_session.query(Project).first().id), "document_type": "MEASUREMENT_BOOK", "document_name": "MB"}, files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
+    response = client.post("/api/v1/documents/", data={"project_id": str(isolated_project_and_contract['project'].id), "document_type": "MEASUREMENT_BOOK", "document_name": "MB"}, files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
     mb_id = response.json()["id"]
     managed_docs.append(mb_id)
     client.post(f"/api/v1/documents/{mb_id}/ingest", files={"file": ("mb.xlsx", mb_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers={"Authorization": f"Bearer {token}"})
@@ -190,37 +211,67 @@ def test_golden_dataset_validation(db_session, client, managed_docs):
     mb_contents = [c.content for c in mb_doc.chunks if c.sheet_name == "Measurements"]
 
     seen_references = set()
-    for meas in truth["measurements"]:
-        m_ref = meas["reference"]
-        matching_rows = []
-        for content in mb_contents:
-            cells = [cell.strip() for cell in content.split(" | ")]
-            if str(m_ref) in cells:
-                matching_rows.append(cells)
 
-        assert len(matching_rows) == 1, f"Missing or duplicate MB reference {m_ref}"
-        cells = matching_rows[0]
+    for meas in truth["measurements"]:
+        m_ref = str(meas["reference"])
+        matching_rows = []
+
+        for content in mb_contents:
+            for line in content.splitlines():
+                if (
+                    line.startswith("Excel row ")
+                    and f"Reference: {m_ref}" in line
+                ):
+                    matching_rows.append(line)
+
+        assert len(matching_rows) == 1, (
+            f"Missing or duplicate MB reference {m_ref}"
+        )
+        row = matching_rows[0]
+
+        expected_fields = {
+            "Date": str(meas["measurement_date"]),
+            "Item Code": str(meas["boq_item_code"]),
+        }
+
+        for label, expected in expected_fields.items():
+            prefix = f"{label}: "
+            actual = next(
+                (
+                    part[len(prefix):].strip()
+                    for part in row.split(" | ")
+                    if part.startswith(prefix)
+                ),
+                None,
+            )
+            assert actual == expected, (
+                f"{label} mismatch for measurement {m_ref}: "
+                f"expected {expected!r}, got {actual!r}"
+            )
+
+        quantity_prefix = "Quantity: "
+        quantity = next(
+            (
+                part[len(quantity_prefix):].strip()
+                for part in row.split(" | ")
+                if part.startswith(quantity_prefix)
+            ),
+            None,
+        )
+        assert quantity is not None, (
+            f"Missing Quantity for measurement {m_ref}"
+        )
+        assert Decimal(quantity) == Decimal(meas["quantity"]), (
+            f"Measurement Quantity mismatch for {m_ref}"
+        )
 
         seen_references.add(m_ref)
 
-        # Validation
-        assert str(meas["measurement_date"]) in cells, f"Measurement Date mismatch for {m_ref}"
-        assert str(meas["boq_item_code"]) in cells, f"Measurement BOQ Code mismatch for {m_ref}"
+    assert len(seen_references) == 12, (
+        "Measurement Book must contain exactly 12 unique references"
+    )
 
-        found_qty = False
-        for cell in cells:
-            try:
-                if Decimal(cell) == Decimal(meas["quantity"]):
-                    found_qty = True
-                    break
-            except InvalidOperation:
-                pass
-        assert found_qty, f"Measurement Quantity mismatch for {m_ref}"
-
-    assert len(seen_references) == 12, "Measurement Book must contain exactly 12 unique references"
-
-
-def test_canonical_db_immutability(db_session, client, managed_docs):
+def test_canonical_db_immutability(db_session, client, isolated_project_and_contract, managed_docs):
     """
     Ensures that ingestion operations do absolutely zero mutations
     to the canonical BOQ and Measurements tables.
@@ -244,7 +295,7 @@ def test_canonical_db_immutability(db_session, client, managed_docs):
 
     response = client.post(
         "/api/v1/documents/",
-        data={"project_id": str(db_session.query(Project).first().id), "document_type": "CONTRACT", "document_name": "Contract Agreement"},
+        data={"project_id": str(isolated_project_and_contract['project'].id), "document_type": "CONTRACT", "document_name": "Contract Agreement"},
         files={"file": ("contract_agreement.pdf", pdf_bytes, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"}
     )

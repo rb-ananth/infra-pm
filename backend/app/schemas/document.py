@@ -109,3 +109,57 @@ class EVMExtractionSummaryResponse(BaseModel):
     validation_errors: int
     reconciliation_matches: int
     reconciliation_mismatches: int
+
+
+class DocumentSearchRequest(BaseModel):
+    project_id: uuid.UUID
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class DocumentSearchResult(BaseModel):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    document_name: str
+    source_filename: str
+    content: str
+    page_number: int | None = None
+    sheet_name: str | None = None
+    row_start: int | None = None
+    row_end: int | None = None
+    section: str | None = None
+    clause_reference: str | None = None
+    cosine_distance: float
+
+
+class DocumentSearchResponse(BaseModel):
+    query: str
+    project_id: uuid.UUID
+    results: list[DocumentSearchResult]
+
+
+class RAGQueryRequest(BaseModel):
+    project_id: uuid.UUID
+    question: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+class RAGSource(BaseModel):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    document_name: str
+    source_filename: str
+    page_number: int | None = None
+    sheet_name: str | None = None
+    row_start: int | None = None
+    row_end: int | None = None
+    section: str | None = None
+    clause_reference: str | None = None
+
+
+class RAGQueryResponse(BaseModel):
+    question: str
+    project_id: uuid.UUID
+    answer: str
+    sources: list[RAGSource]
+    insufficient_evidence: bool = False

@@ -9,6 +9,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
+from pgvector.sqlalchemy import Vector
+
+
+
 
 class DocumentType(str, enum.Enum):
     CONTRACT = "CONTRACT"
@@ -70,6 +74,11 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    embedding: Mapped[list[float] | None] = mapped_column(
+    Vector(1024),
+    nullable=True,
+)
 
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sheet_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

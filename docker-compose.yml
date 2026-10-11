@@ -1,21 +1,56 @@
 services:
   db:
-    image: postgres:15-alpine
-    container_name: infra-pm-db
+    image: pgvector/pgvector:0.8.7-pg15-trixie
+    container_name: infra-pm-demo-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: infra_user
       POSTGRES_PASSWORD: infra_password
-      POSTGRES_DB: infra_pm_db
+      POSTGRES_DB: infra_pm_demo_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_demo_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U infra_user -d infra_pm_db"]
+      test: ["CMD-SHELL", "pg_isready -U infra_user -d infra_pm_demo_db"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  backend:
+    image: python:3.12-slim
+    container_name: infra-pm-demo-backend
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql+psycopg://infra_user:infra_password@db:5432/infra_pm_demo_db
+      - SECRET_KEY=replace_with_a_long_random_secret
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+      - CORS_ORIGINS=http://localhost:5173
+    command: >
+      bash -c "pip install -r requirements.txt &&
+               alembic upgrade head &&
+               python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    container_name: infra-pm-demo-frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: >
+      sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
 volumes:
-  postgres_data:
+  postgres_demo_data:

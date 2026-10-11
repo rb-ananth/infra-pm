@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models.document import Document, DocumentChunk, IngestionStatus
 from app.services.document_parser import DocumentParser, PdfParser, ExcelParser
 from app.services.audit_service import add_audit_log
+from app.services.embedding_service import generate_embedding
 
 def register_document(
     db: Session,
@@ -87,18 +88,26 @@ def ingest_document(db: Session, user_id: uuid.UUID | None, document_id: uuid.UU
         else:
             raise ValueError(f"Unsupported file extension: {doc.file_extension}")
 
+
         for chunk_data in chunks_data:
+            content = chunk_data["content"]
+
+            # Empty pages or rows can be stored, but cannot be embedded.
+            embedding = generate_embedding(content) if content.strip() else None
+
             chunk = DocumentChunk(
                 document_id=doc.id,
                 chunk_index=chunk_data["chunk_index"],
-                content=chunk_data["content"],
+                content=content,
                 content_hash=chunk_data["content_hash"],
+                embedding=embedding,
                 page_number=chunk_data.get("page_number"),
                 sheet_name=chunk_data.get("sheet_name"),
                 row_start=chunk_data.get("row_start"),
                 row_end=chunk_data.get("row_end")
             )
             db.add(chunk)
+
 
         doc.ingestion_status = IngestionStatus.COMPLETED
         add_audit_log(

@@ -217,6 +217,57 @@ def reconcile_contract_facts(db: Session, document_id: uuid.UUID, current_user: 
         db.rollback()
         raise e
 
+
+def _parse_excel_chunk_rows(chunk, expected_columns):
+    """Parse context-rich Excel rows, with compatibility for legacy chunks."""
+    content = chunk.content or ""
+    parsed_rows = []
+
+    for line in content.splitlines():
+        line = line.strip()
+
+        if not line.startswith("Excel row ") or ": " not in line:
+            continue
+
+        row_label, payload = line.split(": ", 1)
+
+        try:
+            row_number = int(row_label.removeprefix("Excel row "))
+        except ValueError:
+            continue
+
+        cells = {}
+        for cell in payload.split(" | "):
+            if ": " not in cell:
+                continue
+
+            header, value = cell.split(": ", 1)
+            cells[header.strip().casefold()] = value.strip()
+
+        values = [
+            cells.get(column.casefold(), "")
+            for column in expected_columns
+        ]
+        parsed_rows.append((row_number, values))
+
+    if parsed_rows:
+        return parsed_rows
+
+    # Context-only chunks contain no data rows.
+    if any(
+        line.strip().startswith(("Worksheet:", "Columns:"))
+        for line in content.splitlines()
+    ):
+        return []
+
+    # Legacy chunks contain plain pipe-separated row values.
+    parts = [part.strip() for part in content.split(" | ")]
+    if not any(parts):
+        return []
+
+    return [(chunk.row_start or 0, parts)]
+
+
 def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -> dict:
     try:
         doc = db.query(Document).filter(Document.id == document_id).first()
@@ -240,40 +291,49 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
         facts_extracted = 0
         validation_errors = 0
         source_discrepancies = 0
-
         parsed_rows = []
         code_counts = {}
         num_counts = {}
 
-        # Pass 1: Parse and identify duplicates globally
+        # Pass 1: Parse rows and identify duplicates globally.
         for chunk in chunks:
             if chunk.sheet_name and "BOQ" not in chunk.sheet_name.upper():
                 continue
 
-            parts = [p.strip() for p in chunk.content.split(" | ")]
-            if len(parts) == 0:
-                continue
+            rows = _parse_excel_chunk_rows(
+                chunk,
+                [
+                    "Item Code",
+                    "Item Number",
+                    "Description",
+                    "Unit",
+                    "Quantity",
+                    "Rate",
+                    "Amount",
+                ],
+            )
 
-            while len(parts) < 7:
-                parts.append("")
+            for row_number, parts in rows:
+                while len(parts) < 7:
+                    parts.append("")
 
-            item_code = parts[0]
-            if item_code.upper() == "ITEM CODE":
-                continue
+                item_code = parts[0].strip()
+                item_number = parts[1].strip()
 
-            item_number = parts[1]
+                if not item_code or item_code.upper() == "ITEM CODE":
+                    continue
 
-            if item_code:
                 code_counts[item_code] = code_counts.get(item_code, 0) + 1
-            if item_number:
-                num_counts[item_number] = num_counts.get(item_number, 0) + 1
+                if item_number:
+                    num_counts[item_number] = num_counts.get(item_number, 0) + 1
 
-            parsed_rows.append((chunk, parts))
+                parsed_rows.append((chunk, parts, row_number))
 
         new_facts_added = []
 
+
         # Pass 2: Extract and Validate
-        for chunk, parts in parsed_rows:
+        for chunk, parts, row_number in parsed_rows:
             item_code = parts[0]
             item_number = parts[1]
             description = parts[2]
@@ -355,7 +415,7 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
                 "source_amount": amount_str
             }
 
-            source_ref = f"Sheet {chunk.sheet_name} Row {chunk.row_start}"
+            source_ref = f"Sheet {chunk.sheet_name} Row {row_number}"
 
             for fname, fval in field_map.items():
                 metadata = {}
@@ -392,7 +452,12 @@ def extract_boq_facts(db: Session, document_id: uuid.UUID, current_user: User) -
 
                 matched_id = None
                 for fid, ef in unmatched_existing.items():
-                    if ef.field_name == fname and ef.value == fval and ef.document_chunk_id == chunk.id:
+                    if (
+                        ef.field_name == fname
+                        and ef.value == fval
+                        and ef.document_chunk_id == chunk.id
+                        and ef.source_reference == source_ref
+                    ):
                         matched_id = fid
                         break
 
@@ -513,25 +578,25 @@ def extract_measurement_facts(db: Session, document_id: uuid.UUID, current_user:
             if chunk.sheet_name and "MEASUREMENT" not in chunk.sheet_name.upper():
                 continue
 
-            parts = [p.strip() for p in chunk.content.split(" | ")]
-            if len(parts) == 0:
-                continue
+            rows = _parse_excel_chunk_rows(
+                chunk,
+                ["Reference", "Date", "Item Code", "Quantity", "Location", "Remarks"],
+            )
 
-            while len(parts) < 6:
-                parts.append("")
+            for row_number, parts in rows:
+                while len(parts) < 6:
+                    parts.append("")
 
-            reference = parts[0]
-            if reference.upper() == "REFERENCE":
-                continue
+                reference = parts[0].strip()
+                if not reference or reference.upper() == "REFERENCE":
+                    continue
 
-            if reference:
                 ref_counts[reference] = ref_counts.get(reference, 0) + 1
-
-            parsed_rows.append((chunk, parts))
+                parsed_rows.append((chunk, parts, row_number))
 
         new_facts_added = []
 
-        for chunk, parts in parsed_rows:
+        for chunk, parts, row_number in parsed_rows:
             reference = parts[0]
             date_str = parts[1]
             boq_item_code = parts[2]
@@ -613,7 +678,7 @@ def extract_measurement_facts(db: Session, document_id: uuid.UUID, current_user:
             if location: field_map["location"] = location
             if remarks: field_map["remarks"] = remarks
 
-            source_ref = f"Sheet {chunk.sheet_name} Row {chunk.row_start}"
+            source_ref = f"Sheet {chunk.sheet_name} Row {row_number}"
 
             for fname, fval in field_map.items():
                 metadata = {}
@@ -772,18 +837,19 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
 
         # Parse Measurement Links
         linked_refs_from_sheet = []
-        link_headers = {}
+        link_headers = {"reference": 0} if link_chunks else {}
+
         for chunk in link_chunks:
-            parts = [p.strip() for p in chunk.content.split(" | ")]
-            if not any(p for p in parts): continue
+            rows = _parse_excel_chunk_rows(
+                chunk,
+                ["Reference"],
+            )
 
-            if not link_headers:
-                link_headers = {name.lower(): i for i, name in enumerate(parts) if name}
-                continue
+            for row_number, parts in rows:
+                reference = parts[0].strip() if parts else ""
 
-            ref = parts[link_headers.get("reference", 0)] if "reference" in link_headers and len(parts) > link_headers["reference"] else None
-            if ref and "total" not in ref.lower():
-                linked_refs_from_sheet.append(ref)
+                if reference and "total" not in reference.lower():
+                    linked_refs_from_sheet.append(reference)
 
         link_sheet_ref_counts = {}
         for r in linked_refs_from_sheet:
@@ -798,212 +864,313 @@ def extract_ra_bill_facts(db: Session, document_id: uuid.UUID, current_user: Use
         cover_fact_data = [] # To hold cover facts until cross-validation
 
         for chunk in cover_chunks:
-            parts = [p.strip() for p in chunk.content.split(" | ")]
-            if not any(p for p in parts): continue
+            rows = _parse_excel_chunk_rows(
+                chunk,
+                [
+                    "Bill Number",
+                    "Gross Amount",
+                    "Linked Measurements",
+                    "Cumulative Total",
+                ],
+            )
 
-            if not cover_headers:
-                cover_headers = {name.lower(): i for i, name in enumerate(parts) if name}
-                continue
+            for row_number, parts in rows:
+                while len(parts) < 4:
+                    parts.append("")
 
-            summary["rows_processed"] += 1
-            cover_data_rows += 1
+                if not any(value.strip() for value in parts):
+                    continue
 
-            bill_number = parts[cover_headers.get("bill number", 0)] if "bill number" in cover_headers and len(parts) > cover_headers["bill number"] else None
-            gross_amount_str = parts[cover_headers.get("gross amount", 1)] if "gross amount" in cover_headers and len(parts) > cover_headers["gross amount"] else None
-            linked_meas_str = parts[cover_headers.get("linked measurements", 2)] if "linked measurements" in cover_headers and len(parts) > cover_headers["linked measurements"] else None
+                summary["rows_processed"] += 1
+                cover_data_rows += 1
 
-            validation_errors = []
-            if cover_data_rows > 1:
-                validation_errors.append("Multiple cover data rows found")
-                canonical_bill = None # invalidate context
+                bill_number = parts[0].strip() or None
+                gross_amount_str = parts[1].strip() or None
+                linked_meas_str = parts[2].strip() or None
 
-            if not bill_number: validation_errors.append("Missing required field: Bill Number")
-            if not gross_amount_str: validation_errors.append("Missing required field: Gross Amount")
-            if not linked_meas_str: validation_errors.append("Missing required field: Linked Measurements")
+                validation_errors = []
 
-            gross_dec = None
-            if gross_amount_str:
-                try:
-                    gross_dec = Decimal(gross_amount_str)
-                    if gross_dec != gross_dec.quantize(Decimal('0.01')):
-                        validation_errors.append("Gross amount precision exceeds 2 decimal places")
-                    if gross_dec < 0: validation_errors.append("Negative gross amount")
-                    if cover_data_rows == 1:
-                        extracted_gross_amount = gross_dec
-                except: validation_errors.append("Invalid gross amount format")
+                if cover_data_rows > 1:
+                    validation_errors.append(
+                        "Multiple cover data rows found"
+                    )
+                    canonical_bill = None
 
-            linked_meas = None
-            if linked_meas_str:
-                try:
-                    linked_meas = int(linked_meas_str)
-                except: validation_errors.append("Invalid linked measurements format")
+                if not bill_number:
+                    validation_errors.append(
+                        "Missing required field: Bill Number"
+                    )
+                if not gross_amount_str:
+                    validation_errors.append(
+                        "Missing required field: Gross Amount"
+                    )
+                if not linked_meas_str:
+                    validation_errors.append(
+                        "Missing required field: Linked Measurements"
+                    )
 
-            recon_status = None
-            recon_details = []
+                gross_dec = None
+                if gross_amount_str:
+                    try:
+                        gross_dec = Decimal(gross_amount_str)
+                        if gross_dec != gross_dec.quantize(Decimal("0.01")):
+                            validation_errors.append(
+                                "Gross amount precision exceeds 2 decimal places"
+                            )
+                        if gross_dec < 0:
+                            validation_errors.append("Negative gross amount")
+                        if cover_data_rows == 1:
+                            extracted_gross_amount = gross_dec
+                    except Exception:
+                        validation_errors.append(
+                            "Invalid gross amount format"
+                        )
 
-            if cover_data_rows > 1:
-                recon_status = "MISMATCH"
-                recon_details.append("Ambiguous canonical bill context due to multiple cover rows")
-            elif not bill_number:
-                recon_status = "MISMATCH"
-                recon_details.append("No unambiguous canonical bill context (missing bill number)")
-            else:
-                canonical_bill = db.query(RABill).filter(
-                    RABill.contract_id == doc.contract_id,
-                    RABill.bill_number == bill_number
-                ).first()
+                linked_meas = None
+                if linked_meas_str:
+                    try:
+                        linked_meas = int(linked_meas_str)
+                    except (ValueError, TypeError):
+                        validation_errors.append(
+                            "Invalid linked measurements format"
+                        )
 
-                if not canonical_bill:
+                recon_status = None
+                recon_details = []
+
+                if cover_data_rows > 1:
                     recon_status = "MISMATCH"
-                    recon_details.append("No canonical RA Bill found")
+                    recon_details.append(
+                        "Ambiguous canonical bill context due to multiple cover rows"
+                    )
+                elif not bill_number:
+                    recon_status = "MISMATCH"
+                    recon_details.append(
+                        "No unambiguous canonical bill context (missing bill number)"
+                    )
                 else:
-                    recon_status = "MATCH"
-                    if gross_dec is not None and canonical_bill.gross_amount != gross_dec:
+                    canonical_bill = db.query(RABill).filter(
+                        RABill.contract_id == doc.contract_id,
+                        RABill.bill_number == bill_number,
+                    ).first()
+
+                    if not canonical_bill:
                         recon_status = "MISMATCH"
-                        recon_details.append(f"Gross amount mismatch: expected {canonical_bill.gross_amount}, got {gross_dec}")
+                        recon_details.append("No canonical RA Bill found")
+                    else:
+                        recon_status = "MATCH"
 
-                    if linked_meas is not None:
-                        db_links = db.query(RABillMeasurement).join(RABillItem).filter(RABillItem.ra_bill_id == canonical_bill.id).count()
-                        if db_links != linked_meas:
+                        if (
+                            gross_dec is not None
+                            and canonical_bill.gross_amount != gross_dec
+                        ):
                             recon_status = "MISMATCH"
-                            recon_details.append(f"Linked measurements mismatch: expected {db_links}, got {linked_meas}")
+                            recon_details.append(
+                                f"Gross amount mismatch: expected "
+                                f"{canonical_bill.gross_amount}, got {gross_dec}"
+                            )
 
-            cover_fact_data.append({
-                "chunk": chunk,
-                "bill_number": bill_number or "UNKNOWN",
-                "validation_errors": validation_errors,
-                "recon_status": recon_status,
-                "recon_details": recon_details,
-                "gross_amount_str": gross_amount_str,
-                "linked_meas_str": linked_meas_str
-            })
+                        if linked_meas is not None:
+                            db_links = (
+                                db.query(RABillMeasurement)
+                                .join(RABillItem)
+                                .filter(
+                                    RABillItem.ra_bill_id == canonical_bill.id
+                                )
+                                .count()
+                            )
+                            if db_links != linked_meas:
+                                recon_status = "MISMATCH"
+                                recon_details.append(
+                                    f"Linked measurements mismatch: "
+                                    f"expected {db_links}, got {linked_meas}"
+                                )
+
+                cover_fact_data.append({
+                    "chunk": chunk,
+                    "bill_number": bill_number or "UNKNOWN",
+                    "validation_errors": validation_errors,
+                    "recon_status": recon_status,
+                    "recon_details": recon_details,
+                    "gross_amount_str": gross_amount_str,
+                    "linked_meas_str": linked_meas_str,
+                })
 
         calc_headers = {}
         ref_counts = {}
         calc_refs = set()
 
         for chunk in calc_chunks:
-            parts = [p.strip() for p in chunk.content.split(" | ")]
-            if not any(p for p in parts): continue
-            if not calc_headers:
-                calc_headers = {name.lower(): i for i, name in enumerate(parts) if name}
-                continue
+            rows = _parse_excel_chunk_rows(
+                chunk,
+                ["Reference", "Item Code", "Quantity", "Rate", "Amount"],
+            )
 
-            ref = parts[calc_headers.get("reference", 0)] if "reference" in calc_headers and len(parts) > calc_headers["reference"] else None
-            item_code = parts[calc_headers.get("item code", 1)] if "item code" in calc_headers and len(parts) > calc_headers["item code"] else None
+            for row_number, parts in rows:
+                while len(parts) < 5:
+                    parts.append("")
 
-            if not ref or not item_code or "total" in ref.lower() or "total" in item_code.lower() or (len(parts) > calc_headers.get("rate", 3) and "total" in parts[calc_headers.get("rate", 3)].lower()):
-                continue
+                ref = parts[0].strip()
+                item_code = parts[1].strip()
+                rate_str = parts[3].strip()
 
-            ref_counts[ref] = ref_counts.get(ref, 0) + 1
-            calc_refs.add(ref)
+                if (
+                    not ref
+                    or not item_code
+                    or "total" in ref.lower()
+                    or "total" in item_code.lower()
+                    or "total" in rate_str.lower()
+                ):
+                    continue
 
-        calc_headers = {}
+                ref_counts[ref] = ref_counts.get(ref, 0) + 1
+                calc_refs.add(ref)
+
         total_valid_line_amounts = Decimal("0.00")
 
         for chunk in calc_chunks:
-            parts = [p.strip() for p in chunk.content.split(" | ")]
-            if not any(p for p in parts): continue
+            rows = _parse_excel_chunk_rows(
+                chunk,
+                ["Reference", "Item Code", "Quantity", "Rate", "Amount"],
+            )
 
-            if not calc_headers:
-                calc_headers = {name.lower(): i for i, name in enumerate(parts) if name}
-                continue
+            for row_number, parts in rows:
+                while len(parts) < 5:
+                    parts.append("")
 
-            ref = parts[calc_headers.get("reference", 0)] if "reference" in calc_headers and len(parts) > calc_headers["reference"] else None
-            item_code = parts[calc_headers.get("item code", 1)] if "item code" in calc_headers and len(parts) > calc_headers["item code"] else None
-            qty_str = parts[calc_headers.get("quantity", 2)] if "quantity" in calc_headers and len(parts) > calc_headers["quantity"] else None
-            rate_str = parts[calc_headers.get("rate", 3)] if "rate" in calc_headers and len(parts) > calc_headers["rate"] else None
-            amount_str = parts[calc_headers.get("amount", 4)] if "amount" in calc_headers and len(parts) > calc_headers["amount"] else None
+                ref = parts[0].strip()
+                item_code = parts[1].strip()
+                qty_str = parts[2].strip()
+                rate_str = parts[3].strip()
+                amount_str = parts[4].strip()
 
-            if not ref or not item_code or "total" in ref.lower() or "total" in item_code.lower() or (rate_str and "total" in rate_str.lower()):
-                continue
+                if (
+                    not ref
+                    or not item_code
+                    or "total" in ref.lower()
+                    or "total" in item_code.lower()
+                    or "total" in rate_str.lower()
+                ):
+                    continue
 
-            summary["rows_processed"] += 1
-            val_errors = []
+                summary["rows_processed"] += 1
+                val_errors = []
 
-            qty_dec = None
-            rate_dec = None
-            amount_dec = None
+                qty_dec = None
+                rate_dec = None
+                amount_dec = None
 
-            if ref_counts.get(ref, 0) > 1:
-                val_errors.append("Duplicate measurement reference")
-                summary["duplicate_references"] += 1
+                if ref_counts.get(ref, 0) > 1:
+                    val_errors.append("Duplicate measurement reference")
+                    summary["duplicate_references"] += 1
 
-            if link_headers and ref not in set(linked_refs_from_sheet):
-                val_errors.append("Measurement reference present in Calculations but missing in Measurement Links")
+                if link_headers and ref not in set(linked_refs_from_sheet):
+                    val_errors.append("Measurement reference present in Calculations but missing in Measurement Links")
 
-            try:
-                qty_dec = Decimal(qty_str)
-                if qty_dec != qty_dec.quantize(Decimal('0.001')):
-                    val_errors.append("Quantity precision exceeds 3 decimal places")
-                if qty_dec < 0: val_errors.append("Negative quantity")
-            except: val_errors.append("Invalid quantity format")
+                try:
+                    qty_dec = Decimal(qty_str)
+                    if qty_dec != qty_dec.quantize(Decimal('0.001')):
+                        val_errors.append("Quantity precision exceeds 3 decimal places")
+                    if qty_dec < 0: val_errors.append("Negative quantity")
+                except: val_errors.append("Invalid quantity format")
 
-            try:
-                rate_dec = Decimal(rate_str)
-                if rate_dec != rate_dec.quantize(Decimal('0.01')):
-                    val_errors.append("Rate precision exceeds 2 decimal places")
-                if rate_dec < 0: val_errors.append("Negative rate")
-            except: val_errors.append("Invalid rate format")
+                try:
+                    rate_dec = Decimal(rate_str)
+                    if rate_dec != rate_dec.quantize(Decimal('0.01')):
+                        val_errors.append("Rate precision exceeds 2 decimal places")
+                    if rate_dec < 0: val_errors.append("Negative rate")
+                except: val_errors.append("Invalid rate format")
 
-            try:
-                if amount_str:
-                    amount_dec = Decimal(amount_str)
-                    if amount_dec != amount_dec.quantize(Decimal('0.01')):
-                        val_errors.append("Amount precision exceeds 2 decimal places")
-                    if amount_dec < 0: val_errors.append("Negative amount")
-            except: val_errors.append("Invalid amount format")
+                try:
+                    if amount_str:
+                        amount_dec = Decimal(amount_str)
+                        if amount_dec != amount_dec.quantize(Decimal('0.01')):
+                            val_errors.append("Amount precision exceeds 2 decimal places")
+                        if amount_dec < 0: val_errors.append("Negative amount")
+                except: val_errors.append("Invalid amount format")
 
-            if qty_dec is not None and rate_dec is not None and amount_dec is not None:
-                calc_amt = (qty_dec * rate_dec).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                if calc_amt != amount_dec:
-                    val_errors.append(f"Source amount {amount_dec} does not match qty * rate ({calc_amt})")
+                if qty_dec is not None and rate_dec is not None and amount_dec is not None:
+                    calc_amt = (qty_dec * rate_dec).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    if calc_amt != amount_dec:
+                        val_errors.append(f"Source amount {amount_dec} does not match qty * rate ({calc_amt})")
 
-            recon_status = None
-            recon_details = []
+                recon_status = None
+                recon_details = []
 
-            if canonical_bill:
-                canonical_meas = db.query(Measurement).filter(
-                    Measurement.reference == ref,
-                    Measurement.boq_item.has(revision_id=approved_revision.id)
-                ).first()
-
-                if not canonical_meas:
-                    recon_status = "MISMATCH"
-                    recon_details.append("Measurement reference not found in DB")
-                    summary["unknown_links"] += 1
-                else:
-                    ra_meas = db.query(RABillMeasurement).join(RABillItem).filter(
-                        RABillItem.ra_bill_id == canonical_bill.id,
-                        RABillMeasurement.measurement_id == canonical_meas.id
+                if canonical_bill:
+                    canonical_meas = db.query(Measurement).filter(
+                        Measurement.reference == ref,
+                        Measurement.boq_item.has(
+                            revision_id=approved_revision.id
+                        )
                     ).first()
 
-                    if not ra_meas:
+                    if not canonical_meas:
                         recon_status = "MISMATCH"
-                        recon_details.append("Measurement not linked to this RA Bill")
+                        recon_details.append(
+                            "Measurement reference not found in DB"
+                        )
+                        summary["unknown_links"] += 1
                     else:
-                        ra_item = ra_meas.ra_bill_item
-                        recon_status = "MATCH"
+                        ra_meas = db.query(RABillMeasurement).join(
+                            RABillItem
+                        ).filter(
+                            RABillItem.ra_bill_id == canonical_bill.id,
+                            RABillMeasurement.measurement_id == canonical_meas.id
+                        ).first()
 
-                        if ra_item.boq_item.item_code != item_code:
+                        if not ra_meas:
                             recon_status = "MISMATCH"
-                            recon_details.append(f"BOQ Item code mismatch: expected {ra_item.boq_item.item_code}, got {item_code}")
+                            recon_details.append(
+                                "Measurement not linked to this RA Bill"
+                            )
+                        else:
+                            ra_item = ra_meas.ra_bill_item
+                            recon_status = "MATCH"
 
-                        if qty_dec is not None and canonical_meas.quantity != qty_dec:
-                            recon_status = "MISMATCH"
-                            recon_details.append(f"Quantity mismatch: expected {canonical_meas.quantity}, got {qty_dec}")
+                            if ra_item.boq_item.item_code != item_code:
+                                recon_status = "MISMATCH"
+                                recon_details.append(
+                                    f"BOQ Item code mismatch: expected "
+                                    f"{ra_item.boq_item.item_code}, got {item_code}"
+                                )
 
-                        if rate_dec is not None and ra_item.rate != rate_dec:
-                            recon_status = "MISMATCH"
-                            recon_details.append(f"Rate mismatch: expected {ra_item.rate}, got {rate_dec}")
+                            if (
+                                qty_dec is not None
+                                and canonical_meas.quantity != qty_dec
+                            ):
+                                recon_status = "MISMATCH"
+                                recon_details.append(
+                                    f"Quantity mismatch: expected "
+                                    f"{canonical_meas.quantity}, got {qty_dec}"
+                                )
 
-                        expected_amt = (canonical_meas.quantity * ra_item.rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        if amount_dec is not None and amount_dec != expected_amt:
-                            recon_status = "MISMATCH"
-                            recon_details.append(f"Amount mismatch: expected {expected_amt}, got {amount_dec}")
-            else:
-                recon_status = "MISMATCH"
-                recon_details.append("No canonical RA Bill context")
+                            if rate_dec is not None and ra_item.rate != rate_dec:
+                                recon_status = "MISMATCH"
+                                recon_details.append(
+                                    f"Rate mismatch: expected {ra_item.rate}, "
+                                    f"got {rate_dec}"
+                                )
+
+                            expected_amt = (
+                                canonical_meas.quantity * ra_item.rate
+                            ).quantize(
+                                Decimal("0.01"),
+                                rounding=ROUND_HALF_UP,
+                            )
+
+                            if (
+                                amount_dec is not None
+                                and amount_dec != expected_amt
+                            ):
+                                recon_status = "MISMATCH"
+                                recon_details.append(
+                                    f"Amount mismatch: expected {expected_amt}, "
+                                    f"got {amount_dec}"
+                                )
+                else:
+                    recon_status = "MISMATCH"
+                    recon_details.append("No canonical RA Bill context")
 
             val_status = ValidationStatus.INVALID if val_errors else ValidationStatus.VALID
 

@@ -1,4 +1,7 @@
 import pytest
+pytestmark = pytest.mark.golden
+
+import pytest
 import uuid
 import json
 from decimal import Decimal
@@ -48,7 +51,7 @@ def managed_docs(db_session):
         db_session.query(Document).filter(Document.id.in_(doc_ids)).delete(synchronize_session=False)
         db_session.commit()
 
-def test_evm_extraction_golden_dataset(db_session: Session, client, managed_docs):
+def test_evm_extraction_golden_dataset(db_session: Session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     
     project = db_session.query(Project).filter(Project.code == "PWD-2026-001").first()
@@ -129,7 +132,7 @@ def test_evm_extraction_golden_dataset(db_session: Session, client, managed_docs
         assert audit_count2 == audit_count
         assert fact_ids2 == fact_ids
         
-def test_evm_extraction_edge_cases(db_session: Session, client, managed_docs):
+def test_evm_extraction_edge_cases(db_session: Session, client, managed_docs, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     project = db_session.query(Project).filter(Project.code == "PWD-2026-001").first()
     
@@ -194,7 +197,7 @@ def test_evm_extraction_edge_cases(db_session: Session, client, managed_docs):
     assert any("Missing checkpoint date" in e for e in errs3)
     assert facts[2].metadata_json["reconciliation_status"] == "MISMATCH" # We expect NOT_COMPARABLE for missing source data
 
-def test_evm_transaction_rollback_on_failure(db_session: Session, client, managed_docs, monkeypatch):
+def test_evm_transaction_rollback_on_failure(db_session: Session, client, managed_docs, monkeypatch, populate_golden_dataset):
     token = get_token(client, "pm@infrapm.gov", "PM@123")
     project = db_session.query(Project).filter(Project.code == "PWD-2026-001").first()
 

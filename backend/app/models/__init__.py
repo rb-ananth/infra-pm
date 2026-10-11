@@ -12,6 +12,7 @@ from app.models.user import User, UserProjectAssignment
 from app.models.ra_bill import RABill, RABillItem, RABillMeasurement, RABillDeduction
 from app.models.evm import EVMBaseline, EVMBaselinePeriod
 from app.models.document import Document, DocumentChunk, DocumentFact
+from app.models.eot import EOTApplication
 
 __all__ = [
     "AuditLog",
@@ -35,4 +36,5 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "DocumentFact",
+    "EOTApplication",
 ]

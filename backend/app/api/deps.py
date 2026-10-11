@@ -189,3 +189,17 @@ def resolve_evm_period_project(db: Session, period_id: uuid.UUID) -> uuid.UUID:
     if not baseline:
         raise HTTPException(status_code=404, detail="EVM Period not found")
     return baseline.project_id
+
+def resolve_eot_application_project(db: Session, eot_id: uuid.UUID) -> uuid.UUID:
+    from app.models.eot import EOTApplication
+    from app.models.contract import Contract
+    from fastapi import HTTPException
+    contract = (
+        db.query(Contract)
+        .join(EOTApplication, EOTApplication.contract_id == Contract.id)
+        .filter(EOTApplication.id == eot_id)
+        .first()
+    )
+    if not contract:
+        raise HTTPException(status_code=404, detail="EOT Application not found")
+    return contract.project_id

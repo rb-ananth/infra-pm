@@ -12,6 +12,15 @@ from app.schemas.document import DocumentResponse, DocumentFactResponse, BoqExtr
 from app.services.document_ingestion_service import register_document, ingest_document
 from app.services.document_intelligence_service import extract_contract_facts, reconcile_contract_facts, extract_boq_facts, extract_measurement_facts, extract_ra_bill_facts, extract_evm_facts, DocumentNotFoundError, DocumentStateError, ContractNotLinkedError
 from app.models.document import Document
+from app.schemas.document import (
+    DocumentSearchRequest,
+    DocumentSearchResponse,
+    DocumentSearchResult,
+    RAGQueryRequest,
+    RAGQueryResponse,
+)
+from app.services.retrieval_service import search_document_chunks
+from app.services.rag_service import answer_project_question, RAGServiceError
 
 router = APIRouter()
 
@@ -88,6 +97,40 @@ def ingest_document_endpoint(
     ingest_document(db=db, user_id=current_user.id, document_id=doc.id, file_stream=file_stream)
     db.refresh(doc)
     return doc
+
+@router.post("/search", response_model=DocumentSearchResponse)
+def search_documents_endpoint(
+    payload: DocumentSearchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(
+            "Admin",
+            "Project Manager",
+            "Engineer",
+            "Billing Engineer",
+            "Viewer",
+        )
+    ),
+    allowed_projects=Depends(get_allowed_project_ids),
+) -> Any:
+    # Enforce project authorization before performing embedding or retrieval.
+    verify_project_access(payload.project_id, allowed_projects)
+
+    results = search_document_chunks(
+        db=db,
+        query_text=payload.query,
+        project_id=payload.project_id,
+        limit=payload.limit,
+    )
+
+    return DocumentSearchResponse(
+        query=payload.query,
+        project_id=payload.project_id,
+        results=[
+            DocumentSearchResult(**result)
+            for result in results
+        ],
+    )
 
 @router.get("/", response_model=list[DocumentResponse])
 def get_documents(
@@ -211,3 +254,39 @@ def extract_evm_facts_endpoint(
         raise HTTPException(status_code=404, detail=str(e))
     except (DocumentStateError, ContractNotLinkedError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/ask", response_model=RAGQueryResponse)
+def ask_project_question_endpoint(
+    payload: RAGQueryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(
+            "Admin",
+            "Project Manager",
+            "Engineer",
+            "Billing Engineer",
+            "Viewer",
+        )
+    ),
+    allowed_projects=Depends(get_allowed_project_ids),
+):
+    # Verify authorization before embedding or retrieving anything.
+    verify_project_access(payload.project_id, allowed_projects)
+
+    try:
+        result = answer_project_question(
+            db=db,
+            project_id=payload.project_id,
+            question=payload.question,
+            limit=payload.limit,
+        )
+        return RAGQueryResponse(**result)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    except RAGServiceError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The project question service is temporarily unavailable.",
+        ) from exc

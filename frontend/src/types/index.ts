@@ -252,3 +252,4 @@ export type EVMTrendPoint = {
   spi: string | null;
   cpi: string | null;
 };
+export * from './eot';

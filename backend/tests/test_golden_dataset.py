@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.golden
+
 import json
 import os
 from decimal import Decimal
@@ -46,7 +49,7 @@ def golden_data():
     assert "evm" in data
     return data
 
-def test_v1_golden_dataset(db_session, golden_data):
+def test_v1_golden_dataset(db_session, golden_data, populate_golden_dataset):
     # 1. Project
     p_data = golden_data["project"]
     project = db_session.query(Project).filter(Project.code == p_data["code"]).first()

@@ -11,6 +11,33 @@ import type {
   MeasurementDetail,
 } from "../types";
 
+export type RAGQueryRequest = {
+  project_id: string;
+  question: string;
+  limit?: number;
+};
+
+export type RAGSource = {
+  chunk_id: string;
+  document_id: string;
+  document_name: string;
+  source_filename: string;
+  page_number: number | null;
+  sheet_name: string | null;
+  row_start: number | null;
+  row_end: number | null;
+  section: string | null;
+  clause_reference: string | null;
+};
+
+export type RAGQueryResponse = {
+  question: string;
+  project_id: string;
+  answer: string;
+  sources: RAGSource[];
+  insufficient_evidence: boolean;
+};
+
 const api = axios.create({
   baseURL: "http://localhost:8000/api/v1"
 });
@@ -215,4 +242,37 @@ export const evmApi = {
     period_date?: string;
     planned_percentage?: string;
   }) => api.put<import("../types").EVMBaselinePeriod>(`/evm-baseline-periods/${periodId}`, data),
+};
+
+import { EOTApplication, EOTApplicationCreate, EOTApplicationUpdate, EOTApplicationDecision } from "../types/eot";
+
+export const eotApi = {
+  list: (contractId?: string) =>
+    api.get<EOTApplication[]>('/eot/', { params: { contract_id: contractId } }),
+
+  get: (id: string) =>
+    api.get<EOTApplication>(`/eot/${id}`),
+
+  create: (data: EOTApplicationCreate) =>
+    api.post<EOTApplication>('/eot/', data),
+
+  update: (id: string, data: EOTApplicationUpdate) =>
+    api.put<EOTApplication>(`/eot/${id}`, data),
+
+  submit: (id: string) =>
+    api.post<EOTApplication>(`/eot/${id}/submit`),
+
+  review: (id: string) =>
+    api.post<EOTApplication>(`/eot/${id}/review`),
+
+  approve: (id: string, data: EOTApplicationDecision) =>
+    api.post<EOTApplication>(`/eot/${id}/approve`, data),
+
+  reject: (id: string, data: EOTApplicationDecision) =>
+    api.post<EOTApplication>(`/eot/${id}/reject`, data),
+};
+
+export const documentQAApi = {
+  ask: (payload: RAGQueryRequest) =>
+    api.post<RAGQueryResponse>("/documents/ask", payload),
 };
